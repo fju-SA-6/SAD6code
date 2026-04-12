@@ -41,7 +41,10 @@ def setup_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ MySQL 「個人成績資料表」確認完畢！")
+        # 先清空舊資料
+        cursor.execute("TRUNCATE TABLE FJU_Personal_Grades")
+        conn.commit()
+        print("✅ MySQL 「個人成績資料表」確認完畢並已清空舊資料！")
         return conn, cursor
     except mysql.connector.Error as err:
         print(f"❌ 資料庫初始化失敗: {err}")
@@ -100,9 +103,6 @@ def scrape_personal_grades():
         rows = soup.select("table.q-table tbody tr")
         
         inserted_count = 0
-        
-        # 清空舊資料，避免重複抓取時發生資料疊加 (可依需求決定是否保留這行)
-        cursor.execute("TRUNCATE TABLE FJU_Personal_Grades")
         
         for row in rows:
             cols = row.find_all('td')

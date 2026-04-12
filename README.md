@@ -6,3 +6,5 @@
 pip3 install mysql-connector-python beautifulsoup4 selenium webdriver-manager
 pip3 install flask flask-cors
 source .venv/bin/activate
+pip install setuptools
+pip install --upgrade undetected-chromedriver

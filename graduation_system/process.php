@@ -100,14 +100,40 @@
                                 }
                             }
 
+                            // --- 整合 test2.py 的畢業檢核缺口 ---
+                            $priority_cases = [];
+                            $sql_missing_req = "SELECT requirement_name FROM FJU_Graduation_Check WHERE grade = '尚未修課'";
+                            $res_missing_req = $conn->query($sql_missing_req);
+                            if ($res_missing_req && $res_missing_req->num_rows > 0) {
+                                while($row = $res_missing_req->fetch_assoc()) {
+                                    $req_name = $row['requirement_name'];
+                                    $req_name_clean = str_replace(['通識領域', '領域'], '', $req_name);
+                                    if (strpos($req_name_clean, '-') !== false) {
+                                        $parts = explode('-', $req_name_clean);
+                                        $req_name_clean = end($parts);
+                                    }
+                                    if (!empty($req_name_clean)) {
+                                        $safe_name = $conn->real_escape_string($req_name_clean);
+                                        $priority_cases[] = "course_name LIKE '%$safe_name%'";
+                                    }
+                                }
+                            }
+                            
+                            $order_by_clause = "RAND()";
+                            if (!empty($priority_cases)) {
+                                $priority_sql = implode(' OR ', $priority_cases);
+                                $order_by_clause = "($priority_sql) DESC, RAND()";
+                            }
+                            // ----------------------------------------
+
                             echo "<hr class='my-4 border-secondary'>";
-                            echo "<h5>💡 推薦修課清單 (根據缺少學分動態推薦)：</h5>";
+                            echo "<h5>💡 推薦修課清單 (優先推薦檢核表缺口，並根據缺少學分動態補齊)：</h5>";
                             echo "<div class='row mt-3'>";
                             
                             if ($required_remaining > 0) {
                                 echo "<div class='col-md-6'>";
                                 echo "<h6 class='text-danger fw-bold'>【必修】還缺 $required_remaining 學分</h6>";
-                                $sql_req = "SELECT course_name, credits FROM FJU_Courses WHERE category = '必修' AND credits > 0 $not_taken_condition GROUP BY course_name ORDER BY RAND() LIMIT 50";
+                                $sql_req = "SELECT course_name, credits FROM FJU_Courses WHERE category = '必修' AND credits > 0 $not_taken_condition GROUP BY course_name ORDER BY $order_by_clause LIMIT 50";
                                 $res_req = $conn->query($sql_req);
                                 if ($res_req && $res_req->num_rows > 0) {
                                     echo "<ul class='list-group mb-3 shadow-sm'>";
@@ -134,7 +160,7 @@
                             if ($elective_remaining > 0) {
                                 echo "<div class='col-md-6'>";
                                 echo "<h6 class='text-success fw-bold'>【選修】還缺 $elective_remaining 學分</h6>";
-                                $sql_opt = "SELECT course_name, credits FROM FJU_Courses WHERE category = '選修' AND credits > 0 $not_taken_condition GROUP BY course_name ORDER BY RAND() LIMIT 100";
+                                $sql_opt = "SELECT course_name, credits FROM FJU_Courses WHERE category = '選修' AND credits > 0 $not_taken_condition GROUP BY course_name ORDER BY $order_by_clause LIMIT 100";
                                 $res_opt = $conn->query($sql_opt);
                                 if ($res_opt && $res_opt->num_rows > 0) {
                                     echo "<ul class='list-group mb-3 shadow-sm'>";

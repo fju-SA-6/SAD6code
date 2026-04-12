@@ -8,3 +8,7 @@ pip3 install flask flask-cors
 source .venv/bin/activate
 pip install setuptools
 pip install --upgrade undetected-chromedriver
+
+運行test1.py
+運行test2.py
+打開index.php

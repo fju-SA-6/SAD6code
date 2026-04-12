@@ -155,63 +155,63 @@
         let searchQuery = '';
         let semesterQuery = '';
         let dayQuery = '';
-        
+
         function updateDisplay() {
             const courses = Array.from(document.querySelectorAll('.course-card'));
-            
+
             // 1. Filter by search query, semester and day
             const filteredCourses = courses.filter(course => {
                 const name = course.getAttribute('data-name').toLowerCase();
                 const semesters = course.getAttribute('data-semesters');
                 const days = course.getAttribute('data-days');
-                
+
                 const matchName = name.includes(searchQuery);
                 const matchSemester = semesterQuery === '' || semesters.includes(semesterQuery);
                 const matchDay = dayQuery === '' || days.includes(dayQuery);
-                
+
                 return matchName && matchSemester && matchDay;
             });
-            
+
             // 2. Hide all courses first
             courses.forEach(course => course.style.display = 'none');
-            
+
             // 3. Apply pagination
             let totalPages = 1;
             let displayCourses = [];
-            
+
             if (itemsPerPage === 'all') {
                 displayCourses = filteredCourses;
             } else {
                 const limit = parseInt(itemsPerPage);
                 totalPages = Math.ceil(filteredCourses.length / limit);
                 if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
-                
+
                 const startIndex = (currentPage - 1) * limit;
                 const endIndex = startIndex + limit;
                 displayCourses = filteredCourses.slice(startIndex, endIndex);
             }
-            
+
             // 4. Show the selected courses
             displayCourses.forEach(course => course.style.display = '');
-            
+
             // 5. Render pagination controls
             renderPagination(totalPages);
         }
-        
+
         function renderPagination(totalPages) {
             const paginationControls = document.getElementById('paginationControls');
             paginationControls.innerHTML = '';
-            
+
             if (itemsPerPage === 'all' || totalPages <= 1) {
                 return; // No pagination needed
             }
-            
+
             // Prev button
             const prevLi = document.createElement('li');
             prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
             prevLi.innerHTML = `<a class="page-link" href="javascript:void(0)" onclick="goToPage(${currentPage - 1})">上一頁</a>`;
             paginationControls.appendChild(prevLi);
-            
+
             // Page numbers
             for (let i = 1; i <= totalPages; i++) {
                 if (totalPages > 15) {
@@ -225,20 +225,20 @@
                         continue;
                     }
                 }
-                
+
                 const pageLi = document.createElement('li');
                 pageLi.className = `page-item ${currentPage === i ? 'active' : ''}`;
                 pageLi.innerHTML = `<a class="page-link" href="javascript:void(0)" onclick="goToPage(${i})">${i}</a>`;
                 paginationControls.appendChild(pageLi);
             }
-            
+
             // Next button
             const nextLi = document.createElement('li');
             nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
             nextLi.innerHTML = `<a class="page-link" href="javascript:void(0)" onclick="goToPage(${currentPage + 1})">下一頁</a>`;
             paginationControls.appendChild(nextLi);
         }
-        
+
         function goToPage(page) {
             currentPage = page;
             updateDisplay();
@@ -250,21 +250,21 @@
             currentPage = 1; // Reset to first page
             updateDisplay();
         });
-        
+
         // Semester Filter change
         document.getElementById('semesterFilter').addEventListener('change', function () {
             semesterQuery = this.value;
             currentPage = 1; // Reset to first page
             updateDisplay();
         });
-        
+
         // Day Filter change
         document.getElementById('dayFilter').addEventListener('change', function () {
             dayQuery = this.value;
             currentPage = 1; // Reset to first page
             updateDisplay();
         });
-        
+
         // Items per page change
         document.getElementById('itemsPerPage').addEventListener('change', function () {
             itemsPerPage = this.value;
@@ -283,7 +283,7 @@
             const checkboxes = document.querySelectorAll('input[name="courses[]"]');
             checkboxes.forEach(cb => cb.checked = false);
         }
-        
+
         // Initial setup on load
         document.addEventListener('DOMContentLoaded', () => {
             updateDisplay();

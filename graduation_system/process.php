@@ -81,6 +81,84 @@
                             if ($required_remaining > 0) echo "<li>必修學分：$required_remaining</li>";
                             if ($elective_remaining > 0) echo "<li>選修學分：$elective_remaining</li>";
                             echo "</ul>";
+                            
+                            // 推薦課程區塊
+                            $not_taken_condition = "";
+                            if (!empty($selected_courses)) {
+                                $ids = implode(',', array_map('intval', $selected_courses));
+                                $sql_taken_names = "SELECT course_name FROM FJU_Courses WHERE id IN ($ids)";
+                                $result_taken_names = $conn->query($sql_taken_names);
+                                $taken_names = [];
+                                if ($result_taken_names && $result_taken_names->num_rows > 0) {
+                                    while($tn = $result_taken_names->fetch_assoc()) {
+                                        $taken_names[] = "'" . $conn->real_escape_string($tn['course_name']) . "'";
+                                    }
+                                }
+                                if (!empty($taken_names)) {
+                                    $not_taken_name_str = implode(',', $taken_names);
+                                    $not_taken_condition = "AND course_name NOT IN ($not_taken_name_str)";
+                                }
+                            }
+
+                            echo "<hr class='my-4 border-secondary'>";
+                            echo "<h5>💡 推薦修課清單 (根據缺少學分動態推薦)：</h5>";
+                            echo "<div class='row mt-3'>";
+                            
+                            if ($required_remaining > 0) {
+                                echo "<div class='col-md-6'>";
+                                echo "<h6 class='text-danger fw-bold'>【必修】還缺 $required_remaining 學分</h6>";
+                                $sql_req = "SELECT course_name, credits FROM FJU_Courses WHERE category = '必修' AND credits > 0 $not_taken_condition GROUP BY course_name ORDER BY RAND() LIMIT 50";
+                                $res_req = $conn->query($sql_req);
+                                if ($res_req && $res_req->num_rows > 0) {
+                                    echo "<ul class='list-group mb-3 shadow-sm'>";
+                                    $accumulated = 0;
+                                    while($r = $res_req->fetch_assoc()) {
+                                        echo "<li class='list-group-item d-flex justify-content-between align-items-center bg-white'>";
+                                        echo htmlspecialchars($r['course_name']);
+                                        echo "<span class='badge bg-danger rounded-pill'>" . $r['credits'] . " 學分</span>";
+                                        echo "</li>";
+                                        
+                                        $accumulated += $r['credits'];
+                                        if ($accumulated >= $required_remaining) {
+                                            break;
+                                        }
+                                    }
+                                    echo "</ul>";
+                                    echo "<small class='text-muted d-block mb-3'>※ 推薦以上課程，合計 <strong>$accumulated</strong> 學分可滿足必修要求。</small>";
+                                } else {
+                                    echo "<p class='text-muted small'>暫無足夠的必修課程資料可推薦。</p>";
+                                }
+                                echo "</div>";
+                            }
+
+                            if ($elective_remaining > 0) {
+                                echo "<div class='col-md-6'>";
+                                echo "<h6 class='text-success fw-bold'>【選修】還缺 $elective_remaining 學分</h6>";
+                                $sql_opt = "SELECT course_name, credits FROM FJU_Courses WHERE category = '選修' AND credits > 0 $not_taken_condition GROUP BY course_name ORDER BY RAND() LIMIT 100";
+                                $res_opt = $conn->query($sql_opt);
+                                if ($res_opt && $res_opt->num_rows > 0) {
+                                    echo "<ul class='list-group mb-3 shadow-sm'>";
+                                    $accumulated = 0;
+                                    while($r = $res_opt->fetch_assoc()) {
+                                        echo "<li class='list-group-item d-flex justify-content-between align-items-center bg-white'>";
+                                        echo htmlspecialchars($r['course_name']);
+                                        echo "<span class='badge bg-success rounded-pill'>" . $r['credits'] . " 學分</span>";
+                                        echo "</li>";
+                                        
+                                        $accumulated += $r['credits'];
+                                        if ($accumulated >= $elective_remaining) {
+                                            break;
+                                        }
+                                    }
+                                    echo "</ul>";
+                                    echo "<small class='text-muted d-block mb-3'>※ 推薦以上課程，合計 <strong>$accumulated</strong> 學分可滿足選修要求。</small>";
+                                } else {
+                                    echo "<p class='text-muted small'>暫無足夠的選修課程資料可推薦。</p>";
+                                }
+                                echo "</div>";
+                            }
+                            
+                            echo "</div>"; // end row
                         }
                         echo "</div>";
 

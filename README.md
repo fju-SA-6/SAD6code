@@ -11,4 +11,6 @@ pip install --upgrade undetected-chromedriver
 
 運行test1.py
 運行test2.py
-打開index.php
+打開index.php（XAMPP:http://localhost/code/-/graduation_system/index.php）
+
+./run.sh

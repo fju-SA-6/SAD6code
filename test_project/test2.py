@@ -150,7 +150,13 @@ def run_scraper():
     chrome_options.add_argument("--disable-notifications")
     
     driver = uc.Chrome(options=chrome_options, version_main=146)
-    driver.maximize_window()
+    
+    # 稍微等待瀏覽器完全初始化，避免 undetected_chromedriver 來不及綁定視窗就呼叫 maximize 導致閃退
+    time.sleep(2)
+    try:
+        driver.maximize_window()
+    except Exception as e:
+        print(f"⚠️ 無法最大化視窗 (可忽略): {e}")
 
     try:
         # 1. 前往學習輔導系統登入頁面
@@ -186,7 +192,7 @@ def run_scraper():
                         pass_inputs[0].send_keys(fju_password)
                         
                         # 再次放慢節奏，假裝是真人在操作
-                        time.sleep(2.5)
+                        time.sleep(1.5)
                         
                         # 只選擇「點擊按鈕」或「按下 Enter」，避免重複觸發導致被切斷連線
                         submit_btns = driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], input[type='submit'], .login-btn, a.btn")

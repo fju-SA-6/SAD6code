@@ -1,14 +1,26 @@
 # fju_SAD_6_code
+
+## 已完成
 抓fju課程資料
 抓個人的學分資料
 分析缺少的學分
 推薦課程
+
+## 未完成
+通識的分類
+別系的畢業門檻
+會出結果成pdf
+擋修
+把php網頁改成python_gui
+包裝成完整.app/.exe
+
+## pip install
 pip3 install mysql-connector-python beautifulsoup4 selenium webdriver-manager
 pip3 install flask flask-cors
 source .venv/bin/activate
 pip install setuptools
 pip install --upgrade undetected-chromedriver
-
+## 運行方式
 運行test1.py
 運行test2.py
 打開index.php（XAMPP:http://localhost/code/-/graduation_system/index.php）

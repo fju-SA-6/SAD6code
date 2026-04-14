@@ -8,6 +8,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.keys import Keys
 import os
 
@@ -61,14 +62,19 @@ def scrape_personal_grades():
 
     chrome_options = Options()
     chrome_options.add_argument("--disable-notifications")
+    chrome_options.page_load_strategy = 'eager' # 提早返回，不等待圖片和所有資源載入
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.maximize_window()
+    driver.set_page_load_timeout(10) # 加上載入超時限制，最多等 10 秒避免卡死
 
     try:
         # 1. 前往登入頁面
         print("🌍 正在開啟輔大 SIS 學生資訊系統...")
-        driver.get("https://sis.fju.edu.tw/#/")
+        try:
+            driver.get("https://sis.fju.edu.tw/#/")
+        except TimeoutException:
+            pass # 發生超時也沒關係，網頁基礎已經載入了，程式繼續執行
         
         print("\n⏳ 【手動登入時間】")
         print("請在彈出的瀏覽器中，輸入你的帳號密碼完成登入。")
@@ -83,12 +89,18 @@ def scrape_personal_grades():
             print("🤖 嘗試為您自動帶入帳號密碼...")
             try:
                 # 1. 嘗試先點擊網頁上的「登入」按鈕打開側邊欄或 Modal
-                login_btns = driver.find_elements(By.XPATH, "//span[text()='登入']")
-                for btn in login_btns:
-                    if btn.is_displayed():
-                        driver.execute_script("arguments[0].click();", btn)
-                        time.sleep(1) # 等待彈出視窗動畫
-                        break
+                for _ in range(10):
+                    login_btns = driver.find_elements(By.XPATH, "//span[text()='登入']")
+                    clicked = False
+                    for btn in login_btns:
+                        if btn.is_displayed():
+                            driver.execute_script("arguments[0].click();", btn)
+                            time.sleep(1) # 等待彈出視窗動畫
+                            clicked = True
+                            break
+                    if clicked or len(driver.find_elements(By.CSS_SELECTOR, "input[type='password']")) > 0:
+                        break # 已點擊或密碼框已出現，直接跳入下一步驟
+                    time.sleep(0.5)
                 
                 # 2. 等待輸入框出現並填入
                 for _ in range(10):

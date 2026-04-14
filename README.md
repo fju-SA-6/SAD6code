@@ -5,25 +5,26 @@
 抓個人的學分資料
 分析缺少的學分
 推薦課程
+把php網頁改成python_gui
 
 ## 未完成
 通識的分類
 別系的畢業門檻
-會出結果成pdf
+加上「分析圖表」和「匯出結果成pdf」
 擋修
-把php網頁改成python_gui
 包裝成完整.app/.exe
 
 ## pip install
 pip3 install mysql-connector-python beautifulsoup4 selenium webdriver-manager
-pip3 install flask flask-cors
+pip3 install flask flask-cors customtkinter
 source .venv/bin/activate
 pip install setuptools
 pip install --upgrade undetected-chromedriver
 ## 運行方式
 運行test1.py
 運行test2.py
-打開index.php（XAMPP:http://localhost/code/-/graduation_system/index.php）
+啟動 GUI 版本：`python test_project/gui.py`
+(舊版網頁：打開index.php，XAMPP:http://localhost/code/-/graduation_system/index.php)
 
 ./run.sh
 test_project/run.sh

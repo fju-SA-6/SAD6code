@@ -1,4 +1,5 @@
 import time
+from database import get_db_connection
 import mysql.connector
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -13,22 +14,13 @@ from selenium.webdriver.common.keys import Keys
 import os
 
 # ==========================================
-# 1. 資料庫連線設定
+# 1. 資料庫連線與表格設定
 # ==========================================
-db_config = {
-    'host': '127.0.0.1',
-    'port': 3307,              
-    'user': 'root',
-    'password': '' # ⚠️ 請在這裡換成你的 MySQL 密碼
-}
-
 def setup_database():
+    conn, cursor = get_db_connection()
+    if not conn: return None, None
+    
     try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        
-        cursor.execute("CREATE DATABASE IF NOT EXISTS graduation_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-        cursor.execute("USE graduation_db")
         
         # 建立個人成績資料表 (成績欄位設為 VARCHAR，因為可能會有 "抵免")
         cursor.execute("""

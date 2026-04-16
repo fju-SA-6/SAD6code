@@ -15,13 +15,22 @@
 包裝成完整.app/.exe
 
 
-## pip install
-pip3 install mysql-connector-python beautifulsoup4 selenium webdriver-manager
-pip3 install flask flask-cors customtkinter
+## 初始化與安裝套件 (pip install)
+如果您是第一次執行本專案，請先建立並啟動虛擬環境，並安裝所有依賴套件：
+
+```bash
+# 啟動虛擬環境 (Mac/Linux)
 source .venv/bin/activate
-pip install setuptools
-pip install --upgrade undetected-chromedriver
-## 運行方式
+
+# 安裝核心套件與爬蟲工具
+pip install mysql-connector-python beautifulsoup4 selenium webdriver-manager undetected-chromedriver
+
+# 安裝 GUI 介面與其他工具
+pip install customtkinter setuptools flask flask-cors
+
+# 安裝分析圖表與 PDF 匯出套件
+pip install matplotlib fpdf2
+```
 運行test1.py
 運行test2.py
 啟動 GUI 版本：`python test_project/gui.py`

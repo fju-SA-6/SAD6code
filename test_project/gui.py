@@ -1,7 +1,26 @@
 import customtkinter as ctk
 import tkinter.messagebox as messagebox
+import tkinter.filedialog as filedialog
 from database import get_db_connection
 import math
+import platform
+import os
+import datetime
+
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from fpdf import FPDF
+
+# 設定 matplotlib 全域中文字型
+os_name = platform.system()
+if os_name == "Windows":
+    plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei', 'Arial Unicode MS']
+elif os_name == "Darwin":
+    plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'PingFang HK', 'Heiti TC']
+else:
+    plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei']
+plt.rcParams['axes.unicode_minus'] = False
 
 class GraduationGUI(ctk.CTk):
     def __init__(self):
@@ -41,6 +60,9 @@ class GraduationGUI(ctk.CTk):
         # 分頁狀態
         self.current_page = 1
         self.items_per_page = 100
+        
+        # 匯出資料快取
+        self.current_recommendations = []
 
         self.setup_ui()
         self.load_data_from_db()
@@ -145,7 +167,25 @@ class GraduationGUI(ctk.CTk):
         self.prog_elec.pack(fill="x", padx=30, pady=(0, 20))
 
         self.lbl_status = ctk.CTkLabel(self.res_stats_frame, text="狀態：尚未查核", font=self.f_header, text_color="orange")
-        self.lbl_status.pack(pady=30)
+        self.lbl_status.pack(pady=(15, 5))
+
+        # 下方加入匯出 PDF 按鈕 (優先使用底端空間以防被圖表擠出畫面)
+        self.btn_export_pdf = ctk.CTkButton(
+            self.res_stats_frame, text="📄 匯出查核結果成 PDF", font=self.f_btn, 
+            height=50, fg_color="#ff8800", hover_color="#cc6600",
+            command=self.export_to_pdf, state="disabled"
+        )
+        self.btn_export_pdf.pack(side="bottom", fill="x", padx=30, pady=(10, 25))
+
+        # 中間圓環圖區域 (排在按鈕前面，利用 expand 搶佔剩餘空間)
+        self.chart_frame = ctk.CTkFrame(self.res_stats_frame, fg_color="transparent")
+        self.chart_frame.pack(side="bottom", fill="both", expand=True, padx=20, pady=5)
+        
+        self.fig = Figure(figsize=(5, 4), facecolor='#2B2B2B', tight_layout=True)
+        self.ax = self.fig.add_subplot(111)
+        self.ax.axis('off')
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
         # 右：推薦清單卡片
         self.res_rec_frame = ctk.CTkFrame(self.res_split, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
@@ -422,8 +462,57 @@ class GraduationGUI(ctk.CTk):
         # 產生推薦修課清單
         self.generate_recommendations(ob_gap, el_gap)
         
+        # 更新分析圖表
+        self.update_chart(sum_obligatory, ob_gap, sum_elective, el_gap)
+        
+        # 啟用 PDF 匯出按鈕
+        self.btn_export_pdf.configure(state="normal")
+        
         # 自動跳轉 Tab (需對應正確含 Emoji 的標籤名稱)
         self.tabview.set("📊 畢業查核結果")
+
+    def update_chart(self, ob_done, ob_gap, el_done, el_gap):
+        self.ax.clear()
+        
+        labels = []
+        sizes = []
+        colors = []
+        
+        if ob_done > 0:
+            labels.append(f'已修必修\n({ob_done})')
+            sizes.append(ob_done)
+            colors.append('#ff4444')
+        if ob_gap > 0:
+            labels.append(f'缺必修\n({ob_gap})')
+            sizes.append(ob_gap)
+            colors.append('#dc3545')
+        if el_done > 0:
+            labels.append(f'已修選修\n({el_done})')
+            sizes.append(el_done)
+            colors.append('#00C851')
+        if el_gap > 0:
+            labels.append(f'缺選修\n({el_gap})')
+            sizes.append(el_gap)
+            colors.append('#28a745')
+            
+        if sum(sizes) == 0:
+            self.ax.text(0.5, 0.5, "無數據", ha="center", va="center", color="white")
+            self.ax.axis('off')
+            self.canvas.draw()
+            return
+
+        # 這裡設定 textprops, 讓 matplotlib 會使用我們前面定義的中文字型 (受 matplotlib rcParams 控制)
+        wedges, texts, autotexts = self.ax.pie(
+            sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
+            startangle=140, textprops={'color': "white", 'fontsize': 11, 'fontfamily': plt.rcParams['font.sans-serif'][0]}
+        )
+        
+        # 中間挖空變圓環圖
+        centre_circle = plt.Circle((0,0), 0.65, fc='#2B2B2B')
+        self.ax.add_artist(centre_circle)
+        
+        self.ax.axis('equal')  
+        self.canvas.draw()
 
     def generate_recommendations(self, ob_gap, el_gap):
         # 正確清空舊推薦
@@ -433,6 +522,7 @@ class GraduationGUI(ctk.CTk):
             except:
                 pass
         self.rec_widgets.clear()
+        self.current_recommendations = []
             
         if ob_gap == 0 and el_gap == 0:
             lbl = ctk.CTkLabel(self.rec_scroll, text="學分已滿，無需推薦修課！", text_color="gray")
@@ -475,10 +565,10 @@ class GraduationGUI(ctk.CTk):
 
             # 開始配置缺漏
             if ob_gap > 0:
-                self.add_rec_section("【必修推薦】", candidates, "必修", ob_gap, "#dc3545")
+                self.add_rec_section("【必修推薦】", candidates, "必修", ob_gap, "#dc3545", self.current_recommendations)
             
             if el_gap > 0:
-                self.add_rec_section("【選修推薦】", candidates, "選修", el_gap, "#28a745")
+                self.add_rec_section("【選修推薦】", candidates, "選修", el_gap, "#28a745", self.current_recommendations)
 
         except Exception as e:
             lbl = ctk.CTkLabel(self.rec_scroll, text=f"產生推薦發生錯誤: {e}", text_color="red")
@@ -488,7 +578,7 @@ class GraduationGUI(ctk.CTk):
             cursor.close()
             conn.close()
 
-    def add_rec_section(self, title, candidates, category, target_gap, color):
+    def add_rec_section(self, title, candidates, category, target_gap, color, rec_list=None):
         lbl_title = ctk.CTkLabel(self.rec_scroll, text=f"{title} 缺 {target_gap} 學分", font=self.f_header, text_color=color)
         lbl_title.pack(anchor="w", pady=(15, 10), padx=5)
         self.rec_widgets.append(lbl_title)
@@ -507,6 +597,9 @@ class GraduationGUI(ctk.CTk):
                 lbl_cr.pack(side="right", padx=10, pady=8)
                 
                 self.rec_widgets.append(card)
+                if rec_list is not None:
+                    rec_list.append({"name": c['name'], "credits": c['credits'], "category": category})
+                
                 accumulated += c["credits"]
                 if accumulated >= target_gap:
                     break
@@ -515,6 +608,86 @@ class GraduationGUI(ctk.CTk):
         lbl_info.pack(anchor="w", padx=10, pady=(5, 20))
         self.rec_widgets.append(lbl_info)
 
+    def export_to_pdf(self):
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            title="儲存畢業查核報告",
+            initialfile="輔大畢業查核報告.pdf"
+        )
+        if not filepath:
+            return
+            
+        try:
+            pdf = FPDF()
+            pdf.add_page()
+            
+            os_name = platform.system()
+            font_path = ""
+            if os_name == "Windows":
+                font_path = "C:/Windows/Fonts/msjh.ttc"
+            elif os_name == "Darwin":
+                font_path = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
+                
+            has_tc_font = False
+            if os.path.exists(font_path):
+                pdf.add_font('tc_font', '', font_path, uni=True)
+                pdf.set_font('tc_font', '', 18)
+                has_tc_font = True
+            else:
+                pdf.set_font("Arial", size=18)
+                
+            pdf.cell(190, 15, txt="🎓 輔大畢業學分查核報告", ln=True, align="C")
+            
+            pdf.set_font('tc_font', '', 11) if has_tc_font else pdf.set_font("Arial", size=11)
+            pdf.cell(190, 8, txt=f"產生時間: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="R")
+            
+            # 分隔線
+            pdf.set_line_width(0.5)
+            pdf.line(10, 40, 200, 40)
+            
+            # --- 學分狀態 ---
+            pdf.ln(15)
+            pdf.set_font('tc_font', '', 14) if has_tc_font else None
+            pdf.set_text_color(0, 102, 204)  # 藍色標題
+            pdf.cell(190, 10, txt="📊 【 當前學分狀態 】", ln=True)
+            
+            pdf.set_text_color(0, 0, 0) # 恢復黑色
+            pdf.set_font('tc_font', '', 12) if has_tc_font else None
+            pdf.cell(190, 8, txt=self.lbl_total_prog.cget("text"), ln=True)
+            pdf.cell(190, 8, txt=self.lbl_req_prog.cget("text"), ln=True)
+            pdf.cell(190, 8, txt=self.lbl_elec_prog.cget("text"), ln=True)
+            
+            pdf.ln(5)
+            # 處理帶有多行的狀態字串
+            status_lines = self.lbl_status.cget("text").split('\n')
+            for line in status_lines:
+                pdf.cell(190, 8, txt=line, ln=True)
+                
+            pdf.ln(10)
+            pdf.set_line_width(0.2)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            
+            # --- 推薦課程 ---
+            pdf.ln(10)
+            pdf.set_font('tc_font', '', 14) if has_tc_font else None
+            pdf.set_text_color(0, 153, 51)  # 綠色標題
+            pdf.cell(190, 10, txt="💡 【 系統推薦修課清單 】", ln=True)
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font('tc_font', '', 12) if has_tc_font else None
+            
+            if not self.current_recommendations:
+                pdf.cell(190, 8, txt="✅ 學分已滿或無推薦課程。", ln=True)
+            else:
+                for rec in self.current_recommendations:
+                    cat_tag = f"[{rec['category']}]"
+                    pdf.cell(190, 8, txt=f"   🔹 {cat_tag} {rec['name']} - {rec['credits']} 學分", ln=True)
+            
+            pdf.output(filepath)
+            messagebox.showinfo("匯出成功", f"報告已成功儲存至：\n{filepath}")
+            
+        except Exception as e:
+            messagebox.showerror("匯出錯誤", f"匯出 PDF 發生錯誤：\n{e}")
 
 if __name__ == "__main__":
     app = GraduationGUI()

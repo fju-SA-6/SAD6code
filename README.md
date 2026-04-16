@@ -6,13 +6,14 @@
 分析缺少的學分
 推薦課程
 把php網頁改成python_gui
+加上「分析圖表」和「匯出結果成pdf」
 
 ## 未完成
 通識的分類
 別系的畢業門檻
-加上「分析圖表」和「匯出結果成pdf」
 擋修
 包裝成完整.app/.exe
+
 
 ## pip install
 pip3 install mysql-connector-python beautifulsoup4 selenium webdriver-manager

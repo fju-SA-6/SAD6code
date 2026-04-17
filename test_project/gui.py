@@ -91,6 +91,14 @@ class GraduationGUI(ctk.CTk):
         self.search_entry.pack(side="left", padx=15, pady=15, expand=True, fill="x")
         self.search_entry.bind("<KeyRelease>", self.on_filter_change)
 
+        self.sys_rule_var = ctk.StringVar(value="113(含)以前學士班")
+        self.sys_rule_menu = ctk.CTkOptionMenu(
+            self.filter_frame, variable=self.sys_rule_var, 
+            values=["113(含)以前學士班", "114起學士班", "二年制在職專班"], 
+            font=self.f_body, height=40, command=self.on_filter_change
+        )
+        self.sys_rule_menu.pack(side="left", padx=10, pady=15)
+
         self.semester_var = ctk.StringVar(value="所有學期")
         self.semester_menu = ctk.CTkOptionMenu(self.filter_frame, variable=self.semester_var, values=["所有學期", "上學期", "下學期"], font=self.f_body, height=40, command=self.on_filter_change)
         self.semester_menu.pack(side="left", padx=10, pady=15)
@@ -161,13 +169,20 @@ class GraduationGUI(ctk.CTk):
 
         # 選修
         self.lbl_elec_prog = ctk.CTkLabel(self.res_stats_frame, text="🧩 選修學分: 0 / 48", font=self.f_header)
-        self.lbl_elec_prog.pack(anchor="w", padx=30, pady=(15, 5))
+        self.lbl_elec_prog.pack(anchor="w", padx=30, pady=(5, 5))
         self.prog_elec = ctk.CTkProgressBar(self.res_stats_frame, height=20, corner_radius=10, progress_color="#00C851")
         self.prog_elec.set(0)
-        self.prog_elec.pack(fill="x", padx=30, pady=(0, 20))
+        self.prog_elec.pack(fill="x", padx=30, pady=(0, 10))
+
+        # 通識
+        self.lbl_gen_prog = ctk.CTkLabel(self.res_stats_frame, text="🌍 通識學分: 0 / 12", font=self.f_header)
+        self.lbl_gen_prog.pack(anchor="w", padx=30, pady=(5, 5))
+        self.prog_gen = ctk.CTkProgressBar(self.res_stats_frame, height=20, corner_radius=10, progress_color="#9933cc")
+        self.prog_gen.set(0)
+        self.prog_gen.pack(fill="x", padx=30, pady=(0, 20))
 
         self.lbl_status = ctk.CTkLabel(self.res_stats_frame, text="狀態：尚未查核", font=self.f_header, text_color="orange")
-        self.lbl_status.pack(pady=(15, 5))
+        self.lbl_status.pack(pady=(5, 5))
 
         # 下方加入匯出 PDF 按鈕 (優先使用底端空間以防被圖表擠出畫面)
         self.btn_export_pdf = ctk.CTkButton(
@@ -423,11 +438,18 @@ class GraduationGUI(ctk.CTk):
             messagebox.showwarning("警告", "您尚未勾選任何課程！")
             return
 
+        sys_rule = self.sys_rule_var.get()
+        gen_req = 12
+        if "114" in sys_rule:
+            gen_req = 10
+        elif "二年制" in sys_rule:
+            gen_req = 6
+
         total_req = 128
-        obligatory_req = 80
+        obligatory_req = 80 - gen_req  # 將原必修目標扣除通識
         elective_req = 48
         
-        sum_total = sum_obligatory = sum_elective = 0
+        sum_total = sum_obligatory = sum_elective = sum_general = 0
         
         # 統計勾選的學分數
         for c_id in self.checked_course_ids:
@@ -435,7 +457,9 @@ class GraduationGUI(ctk.CTk):
             course = next((c for c in self.all_courses if c['id'] == c_id), None)
             if course:
                 sum_total += course['credits']
-                if course['category'] == '必修':
+                if course['category'] == '通識':
+                    sum_general += course['credits']
+                elif course['category'] == '必修':
                     sum_obligatory += course['credits']
                 else:
                     sum_elective += course['credits']
@@ -450,20 +474,24 @@ class GraduationGUI(ctk.CTk):
         self.lbl_elec_prog.configure(text=f"🧩 選修學分: {sum_elective} / {elective_req}")
         self.prog_elec.set(min(1.0, sum_elective / elective_req))
 
+        self.lbl_gen_prog.configure(text=f"🌍 通識學分: {sum_general} / {gen_req}")
+        self.prog_gen.set(min(1.0, sum_general / gen_req))
+
         total_gap = max(0, total_req - sum_total)
         ob_gap = max(0, obligatory_req - sum_obligatory)
         el_gap = max(0, elective_req - sum_elective)
+        gen_gap = max(0, gen_req - sum_general)
 
-        if total_gap == 0 and ob_gap == 0 and el_gap == 0:
+        if total_gap == 0 and ob_gap == 0 and el_gap == 0 and gen_gap == 0:
             self.lbl_status.configure(text="🎉 恭喜！您已滿足所有畢業要求！", text_color="#00C851")
         else:
-            self.lbl_status.configure(text=f"⚠️ 尚未滿足要求！ 總缺口: {total_gap}\n(必修缺: {ob_gap}  /  選修缺: {el_gap})", text_color="#ff4444")
+            self.lbl_status.configure(text=f"⚠️ 缺口: 必修缺 {ob_gap}  /  選修缺 {el_gap}  /  通識缺 {gen_gap}", text_color="#ff4444")
 
         # 產生推薦修課清單
-        self.generate_recommendations(ob_gap, el_gap)
+        self.generate_recommendations(ob_gap, el_gap, gen_gap)
         
         # 更新分析圖表
-        self.update_chart(sum_obligatory, ob_gap, sum_elective, el_gap)
+        self.update_chart(sum_obligatory, ob_gap, sum_elective, el_gap, sum_general, gen_gap)
         
         # 啟用 PDF 匯出按鈕
         self.btn_export_pdf.configure(state="normal")
@@ -471,7 +499,7 @@ class GraduationGUI(ctk.CTk):
         # 自動跳轉 Tab (需對應正確含 Emoji 的標籤名稱)
         self.tabview.set("📊 畢業查核結果")
 
-    def update_chart(self, ob_done, ob_gap, el_done, el_gap):
+    def update_chart(self, ob_done, ob_gap, el_done, el_gap, gen_done, gen_gap):
         self.ax.clear()
         
         labels = []
@@ -494,6 +522,14 @@ class GraduationGUI(ctk.CTk):
             labels.append(f'缺選修\n({el_gap})')
             sizes.append(el_gap)
             colors.append('#28a745')
+        if gen_done > 0:
+            labels.append(f'已修通識\n({gen_done})')
+            sizes.append(gen_done)
+            colors.append('#9933cc')
+        if gen_gap > 0:
+            labels.append(f'缺通識\n({gen_gap})')
+            sizes.append(gen_gap)
+            colors.append('#aa66cc')
             
         if sum(sizes) == 0:
             self.ax.text(0.5, 0.5, "無數據", ha="center", va="center", color="white")
@@ -514,7 +550,7 @@ class GraduationGUI(ctk.CTk):
         self.ax.axis('equal')  
         self.canvas.draw()
 
-    def generate_recommendations(self, ob_gap, el_gap):
+    def generate_recommendations(self, ob_gap, el_gap, gen_gap):
         # 正確清空舊推薦
         for w in self.rec_widgets:
             try:
@@ -524,7 +560,7 @@ class GraduationGUI(ctk.CTk):
         self.rec_widgets.clear()
         self.current_recommendations = []
             
-        if ob_gap == 0 and el_gap == 0:
+        if ob_gap == 0 and el_gap == 0 and gen_gap == 0:
             lbl = ctk.CTkLabel(self.rec_scroll, text="學分已滿，無需推薦修課！", text_color="gray")
             lbl.pack(pady=20)
             self.rec_widgets.append(lbl)
@@ -547,21 +583,63 @@ class GraduationGUI(ctk.CTk):
                 if req_name_clean:
                     priority_cases.append(req_name_clean)
 
+            # --- 通識領域關鍵字篩選函式 ---
+            domain_keywords = {
+                "人文與藝術": ['文學', '哲學', '聽覺', '視覺', '表演', '生活藝術', '藝術', '歷史', '文化', '音樂', '中世紀', '思想', '唐宋', '倫理', '論'],
+                "自然與科技": ['醫學', '自然', '資訊', '科技', '民生', '地球', '電腦', '程式', '生態', '健康', '癌症', '診斷', '人體', '應用', '數位'],
+                "社會科學": ['管理', '教育', '心理', '社會', '宗教', '政治', '經濟', '法律', '傳播', '國際', '發展', '外交', '關係'],
+                "永續素養": ['永續', '風險', '多元', 'SDGs']
+            }
+            def categorize_domain(name):
+                for domain, kws in domain_keywords.items():
+                    if any(kw in name for kw in kws):
+                        return domain
+                return "人文與藝術" # 預設指派
+
+            # --- 計算通識各領域的滿足狀況 ---
+            taken_general = [c for c in self.all_courses if c['id'] in self.checked_course_ids and c['category'] == '通識']
+            taken_domains = {"人文與藝術": 0, "自然與科技": 0, "社會科學": 0, "永續素養": 0, "任一通識": 0}
+            for tc in taken_general:
+                dom = categorize_domain(tc['name'])
+                taken_domains[dom] += tc['credits']
+
+            # 計算各領域通識缺口
+            domain_gaps = {}
+            sys_rule = self.sys_rule_var.get()
+            if "114" in sys_rule:
+                for d in ["人文與藝術", "自然與科技", "社會科學", "永續素養"]:
+                    domain_gaps[d] = max(0, 2 - taken_domains[d])
+                total_specific_req = sum(domain_gaps.values())
+                free_gap = max(0, gen_gap - total_specific_req)
+                if free_gap > 0:
+                    domain_gaps["任一通識"] = free_gap
+            elif "二年制" in sys_rule:
+                for d in ["人文與藝術", "自然與科技", "社會科學"]:
+                    domain_gaps[d] = max(0, 2 - taken_domains[d])
+            else: # 113含以前
+                for d in ["人文與藝術", "自然與科技", "社會科學"]:
+                    domain_gaps[d] = max(0, 4 - taken_domains[d])
+
             # --- 取出並過濾候選清單 --- 
             cursor.execute("SELECT course_name, credits, category FROM FJU_Courses WHERE credits > 0 GROUP BY course_name")
             candidates = []
+            general_candidates = []
             for row in cursor.fetchall():
                 n, cr, cat = row
                 if n not in taken_names:
-                    candidates.append({"name": n, "credits": cr, "category": cat})
+                    cand = {"name": n, "credits": cr, "category": cat}
+                    if cat == "通識":
+                        cand["domain"] = categorize_domain(n)
+                        general_candidates.append(cand)
+                    candidates.append(cand)
 
             # 計算優先度排序
             def sort_key(c):
-                # 如果名稱包含任何優先缺口關鍵字，排到最前 (-1)
                 is_priority = any(p in c["name"] for p in priority_cases)
                 return (0 if is_priority else 1, c["name"])
 
             candidates.sort(key=sort_key)
+            general_candidates.sort(key=sort_key)
 
             # 開始配置缺漏
             if ob_gap > 0:
@@ -569,6 +647,17 @@ class GraduationGUI(ctk.CTk):
             
             if el_gap > 0:
                 self.add_rec_section("【選修推薦】", candidates, "選修", el_gap, "#28a745", self.current_recommendations)
+
+            # 配置通識領域缺漏
+            if gen_gap > 0:
+                for d, req in domain_gaps.items():
+                    if req > 0:
+                        if d == "任一通識":
+                            self.add_rec_section("【任選通識領域】", general_candidates, "通識", req, "#9933cc", self.current_recommendations)
+                        else:
+                            # 過濾只推薦該特定領域的課
+                            spec_cands = [c for c in general_candidates if c["domain"] == d]
+                            self.add_rec_section(f"【{d}通識】", spec_cands, "通識", req, "#9933cc", self.current_recommendations)
 
         except Exception as e:
             lbl = ctk.CTkLabel(self.rec_scroll, text=f"產生推薦發生錯誤: {e}", text_color="red")
@@ -657,6 +746,7 @@ class GraduationGUI(ctk.CTk):
             pdf.cell(190, 8, txt=self.lbl_total_prog.cget("text"), ln=True)
             pdf.cell(190, 8, txt=self.lbl_req_prog.cget("text"), ln=True)
             pdf.cell(190, 8, txt=self.lbl_elec_prog.cget("text"), ln=True)
+            pdf.cell(190, 8, txt=self.lbl_gen_prog.cget("text"), ln=True)
             
             pdf.ln(5)
             # 處理帶有多行的狀態字串

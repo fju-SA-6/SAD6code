@@ -201,7 +201,11 @@ def run_scraper():
         print(f"❌ 發生未預期錯誤: {e}")
     finally:
         print("🛑 關閉瀏覽器與資料庫連線...")
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception as e:
+            print(f"⚠️ 關閉瀏覽器時發生小錯誤 (可忽略): {e}")
+            
         if conn and conn.is_connected():
             cursor.close()
             conn.close()

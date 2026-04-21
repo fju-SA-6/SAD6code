@@ -45,7 +45,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo [步驟 3/3] 資料庫更新完畢！正在為您開啟畢業選課系統網頁...
-start http://localhost/code/-/graduation_system/index.php
+start http://localhost/SAD6CODE/SAD6code/graduation_system/index.php
 
 echo ✅ 流程結束！
 pause

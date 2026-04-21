@@ -57,12 +57,66 @@
                             echo "<div class='alert alert-warning'>您沒有勾選任何課程。</div>";
                         }
 
-                        // Credits summary
+                        // Credits summary with progress bars
                         echo "<h3 class='mb-3'>學分統計：</h3>";
+                        
+                        // Calculate percentages
+                        $total_percent = ($total_required > 0) ? min(100, ($total_credits / $total_required) * 100) : 0;
+                        $required_percent = ($required_required > 0) ? min(100, ($required_credits / $required_required) * 100) : 0;
+                        $elective_percent = ($elective_required > 0) ? min(100, ($elective_credits / $elective_required) * 100) : 0;
+                        
+                        // Determine progress bar colors
+                        $total_color = $total_percent >= 100 ? 'success' : ($total_percent >= 50 ? 'info' : 'warning');
+                        $required_color = $required_percent >= 100 ? 'danger' : ($required_percent >= 50 ? 'warning' : 'danger');
+                        $elective_color = $elective_percent >= 100 ? 'success' : ($elective_percent >= 50 ? 'info' : 'warning');
+                        
                         echo "<div class='row mb-4'>";
-                        echo "<div class='col-md-4'><div class='card text-center'><div class='card-body'><h5 class='card-title'>總學分</h5><p class='card-text display-6'>$total_credits / $total_required</p></div></div></div>";
-                        echo "<div class='col-md-4'><div class='card text-center'><div class='card-body'><h5 class='card-title'>必修學分</h5><p class='card-text display-6'>$required_credits / $required_required</p></div></div></div>";
-                        echo "<div class='col-md-4'><div class='card text-center'><div class='card-body'><h5 class='card-title'>選修學分</h5><p class='card-text display-6'>$elective_credits / $elective_required</p></div></div></div>";
+                        
+                        // Total Credits Card
+                        echo "<div class='col-md-4'>";
+                        echo "<div class='card text-center'>";
+                        echo "<div class='card-body'>";
+                        echo "<h5 class='card-title'>總學分</h5>";
+                        echo "<p class='card-text display-6 mb-3'>$total_credits / $total_required</p>";
+                        echo "<div class='progress' style='height: 25px;'>";
+                        echo "<div class='progress-bar bg-$total_color' role='progressbar' style='width: " . $total_percent . "%' aria-valuenow='" . round($total_percent) . "' aria-valuemin='0' aria-valuemax='100'>";
+                        echo "<span class='fw-bold'>" . round($total_percent) . "%</span>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        
+                        // Required Credits Card
+                        echo "<div class='col-md-4'>";
+                        echo "<div class='card text-center'>";
+                        echo "<div class='card-body'>";
+                        echo "<h5 class='card-title'>必修學分</h5>";
+                        echo "<p class='card-text display-6 mb-3'>$required_credits / $required_required</p>";
+                        echo "<div class='progress' style='height: 25px;'>";
+                        echo "<div class='progress-bar bg-$required_color' role='progressbar' style='width: " . $required_percent . "%' aria-valuenow='" . round($required_percent) . "' aria-valuemin='0' aria-valuemax='100'>";
+                        echo "<span class='fw-bold'>" . round($required_percent) . "%</span>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        
+                        // Elective Credits Card
+                        echo "<div class='col-md-4'>";
+                        echo "<div class='card text-center'>";
+                        echo "<div class='card-body'>";
+                        echo "<h5 class='card-title'>選修學分</h5>";
+                        echo "<p class='card-text display-6 mb-3'>$elective_credits / $elective_required</p>";
+                        echo "<div class='progress' style='height: 25px;'>";
+                        echo "<div class='progress-bar bg-$elective_color' role='progressbar' style='width: " . $elective_percent . "%' aria-valuenow='" . round($elective_percent) . "' aria-valuemin='0' aria-valuemax='100'>";
+                        echo "<span class='fw-bold'>" . round($elective_percent) . "%</span>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        echo "</div>";
+                        
                         echo "</div>";
 
                         $total_remaining = max(0, $total_required - $total_credits);

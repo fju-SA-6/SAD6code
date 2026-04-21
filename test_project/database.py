@@ -5,7 +5,7 @@ import mysql.connector
 # ==========================================
 db_config = {
     'host': '127.0.0.1',
-    'port': 3307,              
+    'port': 3306,              
     'user': 'root',
     'password': '' # ⚠️ 請在這裡換成你的 MySQL 密碼
 }

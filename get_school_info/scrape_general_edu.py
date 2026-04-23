@@ -27,9 +27,11 @@ def setup_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS FJU_GenEd_Departments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                course_name VARCHAR(100) NOT NULL UNIQUE,
+                semester VARCHAR(20) NOT NULL,
+                course_name VARCHAR(100) NOT NULL,
                 department_name VARCHAR(100) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_course_sem (semester, course_name)
             )
         """)
         print("✅ MySQL 資料庫與通識系所資料表確認成功！")
@@ -55,7 +57,11 @@ def scrape_general_education_categories():
         
         print("\n⏳ 【手動操作時間】")
         print("請在網頁上設定好搜尋條件（例如：學年度、學期、通識）並按下「搜尋」。")
-        input("➡️  確認下方表格資料已經載入完成後，請在這邊按下 [Enter] 鍵讓程式開始抓取...")
+        current_semester = input("➡️  請先輸入您目前正在抓取的學期（例如：上學期、下學期），然後按 [Enter]： ").strip()
+        if not current_semester:
+            current_semester = "未知學期"
+            
+        input("➡️  確認瀏覽器中下方表格資料已經載入完成後，請再次按下 [Enter] 鍵讓程式開始抓取...")
         
         main_window = driver.current_window_handle
         total_found = 0
@@ -88,9 +94,9 @@ def scrape_general_education_categories():
                     
                     if "通識" in category:
                         # 先檢查資料庫是否已經有這筆，如果有了就跳過以節省時間
-                        cursor.execute("SELECT id FROM FJU_GenEd_Departments WHERE course_name = %s", (course_name,))
+                        cursor.execute("SELECT id FROM FJU_GenEd_Departments WHERE semester = %s AND course_name = %s", (current_semester, course_name))
                         if cursor.fetchone():
-                            print(f"⏩ 【{course_name}】已經在資料庫中，跳過。")
+                            print(f"⏩ 【{course_name}】({current_semester}) 已經在資料庫中，跳過。")
                             continue
 
                         print(f"🔍 找到通識課程：【{course_name}】，準備點擊大綱...")
@@ -135,10 +141,10 @@ def scrape_general_education_categories():
                             if department != "未知單位":
                                 # 寫入資料庫
                                 try:
-                                    sql = "INSERT IGNORE INTO FJU_GenEd_Departments (course_name, department_name) VALUES (%s, %s)"
-                                    cursor.execute(sql, (course_name, department))
+                                    sql = "INSERT IGNORE INTO FJU_GenEd_Departments (semester, course_name, department_name) VALUES (%s, %s, %s)"
+                                    cursor.execute(sql, (current_semester, course_name, department))
                                     conn.commit()
-                                    print(f"🎯 成功存入！【{course_name}】 -> {department}")
+                                    print(f"🎯 成功存入！【{current_semester}】{course_name} -> {department}")
                                     total_found += 1
                                     page_found += 1
                                 except mysql.connector.Error as err:

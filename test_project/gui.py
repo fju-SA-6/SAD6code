@@ -237,14 +237,31 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
-            # 1. 取得已過關之個人成績
+            # 1. 取得已過關之個人成績，並找出重複修課時最好的成績
+            self.course_best_grades = {}
             cursor.execute("SELECT course_name, grade FROM FJU_Personal_Grades")
+            
+            def get_grade_val(g):
+                if g.isdigit(): return int(g)
+                if g in ['抵免', '通過']: return 60 # 將抵免/通過視為 60 分以利於高於未評定等狀態
+                return -1 # 其他如未評定、不及格等視為 -1
+
             for row in cursor.fetchall():
                 c_name, grade = row[0], row[1].strip() if row[1] else ""
+                current_val = get_grade_val(grade)
+                
+                if c_name not in self.course_best_grades:
+                    self.course_best_grades[c_name] = grade
+                else:
+                    best_val = get_grade_val(self.course_best_grades[c_name])
+                    if current_val > best_val:
+                        self.course_best_grades[c_name] = grade
+            
+            for c_name, grade in self.course_best_grades.items():
                 is_passed = False
                 if grade.isdigit() and int(grade) >= 60:
                     is_passed = True
-                elif grade not in ['不及格', '未通過', '停修', 'W', 'F', '']:
+                elif grade not in ['不及格', '未通過', '停修', 'W', 'F', '', '未評定成績']:
                     is_passed = True
                 
                 if is_passed:
@@ -378,12 +395,20 @@ class GraduationGUI(ctk.CTk):
             # 美化 CheckBox 色彩與設定
             color = "#ff4444" if c['category'] == "必修" else "#00C851"
             
+            grade_info = ""
+            if hasattr(self, 'course_best_grades') and c['name'] in self.course_best_grades:
+                g = self.course_best_grades[c['name']]
+                if c['name'] in self.passed_course_names:
+                    grade_info = f"  |  🏆 {g}"
+                else:
+                    grade_info = f"  |  ❌ {g}"
+            
             def make_cmd(c_id=c['id'], var=v):
                 return lambda: self.toggle_course(c_id, var.get())
 
             chk = ctk.CTkCheckBox(
                 self.list_frame, 
-                text=f"【{c['category']}】 {c['name']}  —  {c['credits']} 學分  |  👨‍🏫 {c['teachers']}",
+                text=f"【{c['category']}】 {c['name']}  —  {c['credits']} 學分  |  👨‍🏫 {c['teachers']}{grade_info}",
                 variable=v,
                 onvalue="on",
                 offvalue="off",

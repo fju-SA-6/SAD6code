@@ -1,0 +1,22 @@
+<td data-v-2d59248e="" class="q-td "><div data-v-2d59248e="" style="min-width: 200px; white-space: pre-wrap;">莊子<!----></div><div data-v-2d59248e="" class="row justify-center"><div data-v-2d59248e=""></div></div></td>
+Message: no such element: Unable to locate element: {"method":"tag name","selector":"span"}
+  (Session info: chrome=147.0.7727.56); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception
+Stacktrace:
+0   chromedriver                        0x0000000102835ebc cxxbridge1$str$ptr + 3213376
+1   chromedriver                        0x000000010282de8c cxxbridge1$str$ptr + 3180560
+2   chromedriver                        0x00000001022f38d4 _RNvCs10ygTOo3JCa_7___rustc35___rust_no_alloc_shim_is_unstable_v2 + 75096
+3   chromedriver                        0x000000010233b8b4 _RNvCs10ygTOo3JCa_7___rustc35___rust_no_alloc_shim_is_unstable_v2 + 369976
+4   chromedriver                        0x0000000102332780 _RNvCs10ygTOo3JCa_7___rustc35___rust_no_alloc_shim_is_unstable_v2 + 332804
+5   chromedriver                        0x000000010237b84c _RNvCs10ygTOo3JCa_7___rustc35___rust_no_alloc_shim_is_unstable_v2 + 632016
+6   chromedriver                        0x000000010233127c _RNvCs10ygTOo3JCa_7___rustc35___rust_no_alloc_shim_is_unstable_v2 + 327424
+7   chromedriver                        0x00000001027f3f60 cxxbridge1$str$ptr + 2943204
+8   chromedriver                        0x00000001027f7744 cxxbridge1$str$ptr + 2957512
+9   chromedriver                        0x00000001027d8e50 cxxbridge1$str$ptr + 2832340
+10  chromedriver                        0x00000001027f7fc4 cxxbridge1$str$ptr + 2959688
+11  chromedriver                        0x00000001027c9828 cxxbridge1$str$ptr + 2769324
+12  chromedriver                        0x000000010281c920 cxxbridge1$str$ptr + 3109540
+13  chromedriver                        0x000000010281ca9c cxxbridge1$str$ptr + 3109920
+14  chromedriver                        0x000000010282dae4 cxxbridge1$str$ptr + 3179624
+15  libsystem_pthread.dylib             0x0000000182283bc8 _pthread_start + 136
+16  libsystem_pthread.dylib             0x000000018227eb80 thread_start + 8
+

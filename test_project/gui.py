@@ -6,6 +6,9 @@ import math
 import platform
 import os
 import datetime
+import sys
+import subprocess
+import threading
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -779,6 +782,92 @@ class GraduationGUI(ctk.CTk):
         except Exception as e:
             messagebox.showerror("匯出錯誤", f"匯出 PDF 發生錯誤：\n{e}")
 
+class LoginWindow(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("🎓 輔大系統登入")
+        self.geometry("450x550")
+        
+        ctk.set_appearance_mode("Dark")
+        ctk.set_default_color_theme("blue")
+        
+        self.f_title = ("Helvetica", 28, "bold")
+        self.f_body = ("Helvetica", 16)
+        
+        self.lbl_title = ctk.CTkLabel(self, text="🎓 輔大成績爬蟲登入", font=self.f_title)
+        self.lbl_title.pack(pady=(50, 30))
+        
+        self.entry_account = ctk.CTkEntry(self, placeholder_text="請輸入學號 (帳號)", font=self.f_body, width=280, height=45)
+        self.entry_account.pack(pady=15)
+        
+        self.entry_password = ctk.CTkEntry(self, placeholder_text="請輸入密碼", show="*", font=self.f_body, width=280, height=45)
+        self.entry_password.pack(pady=15)
+        
+        self.btn_run = ctk.CTkButton(self, text="🚀 開始更新資料", font=("Helvetica", 18, "bold"), width=280, height=50, command=self.start_scraping)
+        self.btn_run.pack(pady=30)
+        
+        self.lbl_status = ctk.CTkLabel(self, text="請輸入您的輔大 SIS 系統帳號密碼", font=("Helvetica", 14), text_color="gray60")
+        self.lbl_status.pack(pady=10)
+        
+        self.btn_skip = ctk.CTkButton(self, text="跳過更新，直接開啟查核系統", font=("Helvetica", 14), fg_color="transparent", border_width=1, text_color="gray80", hover_color="gray30", command=self.open_main_gui)
+        self.btn_skip.pack(pady=10)
+
+    def start_scraping(self):
+        account = self.entry_account.get().strip()
+        password = self.entry_password.get().strip()
+        
+        if not account or not password:
+            messagebox.showwarning("警告", "請輸入帳號與密碼！")
+            return
+            
+        os.environ['FJU_ACCOUNT'] = account
+        os.environ['FJU_PASSWORD'] = password
+        
+        self.btn_run.configure(state="disabled")
+        self.btn_skip.configure(state="disabled")
+        self.entry_account.configure(state="disabled")
+        self.entry_password.configure(state="disabled")
+        
+        self.lbl_status.configure(text="⏳ 正在背景啟動瀏覽器...", text_color="#33b5e5")
+        
+        threading.Thread(target=self.run_scripts_thread, daemon=True).start()
+        
+    def run_scripts_thread(self):
+        python_exe = sys.executable
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        try:
+            self.after(0, lambda: self.lbl_status.configure(text="⏳ [1/2] 正在執行 test1.py (個人成績)..."))
+            proc1 = subprocess.run([python_exe, "test1.py"], cwd=script_dir)
+            if proc1.returncode != 0:
+                self.after(0, self.show_error, "test1.py 執行失敗", "請查看終端機輸出以了解錯誤原因。")
+                return
+                
+            self.after(0, lambda: self.lbl_status.configure(text="⏳ [2/2] 正在執行 test2.py (畢業檢核表)..."))
+            proc2 = subprocess.run([python_exe, "test2.py"], cwd=script_dir)
+            if proc2.returncode != 0:
+                self.after(0, self.show_error, "test2.py 執行失敗", "請查看終端機輸出以了解錯誤原因。")
+                return
+                
+            self.after(0, lambda: self.lbl_status.configure(text="✅ 更新完成！正在開啟系統...", text_color="#00C851"))
+            self.after(1000, self.open_main_gui)
+            
+        except Exception as e:
+            self.after(0, self.show_error, "執行發生例外錯誤", str(e))
+            
+    def show_error(self, title, msg):
+        messagebox.showerror(title, msg)
+        self.btn_run.configure(state="normal")
+        self.btn_skip.configure(state="normal")
+        self.entry_account.configure(state="normal")
+        self.entry_password.configure(state="normal")
+        self.lbl_status.configure(text="❌ 執行失敗，請重試", text_color="#ff4444")
+        
+    def open_main_gui(self):
+        self.destroy()
+        app = GraduationGUI()
+        app.mainloop()
+
 if __name__ == "__main__":
-    app = GraduationGUI()
+    app = LoginWindow()
     app.mainloop()

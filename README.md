@@ -7,10 +7,9 @@
 推薦課程
 把php網頁改成python_gui
 加上「分析圖表」和「匯出結果成pdf」
-
+前端（替代使用account.txt）
 
 ## 未完成
-前端（替代使用account.txt）
 別系的畢業門檻
 重複修同一科計算分數最好的
 抓取通識的分類（在https://outline.fju.edu.tw/#/outlineSearch/searchView 遇到通識點擊課程大綱裡面的「開課單位：」）

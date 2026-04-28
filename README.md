@@ -12,6 +12,7 @@
 抓取通識的分類（在https://outline.fju.edu.tw/#/outlineSearch/searchView 遇到通識點擊課程大綱裡面的「開課單位：」）
 
 ## 未完成
+讓系統自動勾選的顯示在最前面
 別系的畢業門檻
 根據不同系的學生推計不同的課程
 擋修

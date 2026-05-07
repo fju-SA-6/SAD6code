@@ -237,9 +237,9 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
-            # 1. 取得已過關之個人成績，並找出重複修課時最好的成績
+            # 1. 取得已過關之個人成績，並找出重複修課時最好的成績，同時記錄該科學分數
             self.course_best_grades = {}
-            cursor.execute("SELECT course_name, grade FROM FJU_Personal_Grades")
+            cursor.execute("SELECT course_name, grade, credits FROM FJU_Personal_Grades")
             
             def get_grade_val(g):
                 if g.isdigit(): return int(g)
@@ -248,16 +248,20 @@ class GraduationGUI(ctk.CTk):
 
             for row in cursor.fetchall():
                 c_name, grade = row[0], row[1].strip() if row[1] else ""
+                c_credits = float(row[2]) if row[2] else 0.0
+                c_credits = int(c_credits) if c_credits == int(c_credits) else c_credits
+
                 current_val = get_grade_val(grade)
                 
                 if c_name not in self.course_best_grades:
-                    self.course_best_grades[c_name] = grade
+                    self.course_best_grades[c_name] = {'grade': grade, 'credits': c_credits}
                 else:
-                    best_val = get_grade_val(self.course_best_grades[c_name])
+                    best_val = get_grade_val(self.course_best_grades[c_name]['grade'])
                     if current_val > best_val:
-                        self.course_best_grades[c_name] = grade
+                        self.course_best_grades[c_name] = {'grade': grade, 'credits': c_credits}
             
-            for c_name, grade in self.course_best_grades.items():
+            for c_name, data in self.course_best_grades.items():
+                grade = data['grade']
                 is_passed = False
                 if grade.isdigit() and int(grade) >= 60:
                     is_passed = True
@@ -268,23 +272,34 @@ class GraduationGUI(ctk.CTk):
                     self.passed_course_names.add(c_name)
 
             # 2. 取得所有課程資料
+            # 2. 取得所有課程資料，將「課名相同且學分相同」的合併顯示
             sql = """
                 SELECT id, course_name, credits, category, 
                        GROUP_CONCAT(DISTINCT semester) as semesters, 
                        GROUP_CONCAT(DISTINCT day_of_week) as days, 
                        GROUP_CONCAT(DISTINCT teacher SEPARATOR ', ') as teachers 
                 FROM FJU_Courses 
-                GROUP BY course_name 
-                ORDER BY category, course_name
+                GROUP BY course_name, credits
+                ORDER BY category, course_name, credits
             """
             cursor.execute(sql)
             self.all_courses = []
+            
+            already_auto_checked = set()
             for row in cursor.fetchall():
                 c_id, name, credits_v, category, sems, days, teachers = row
                 
-                # 自動勾選邏輯：若在已通過名單內，加入 checked_course_ids
+                # 自動勾選邏輯：若在已通過名單內，且學分數符合個人真實獲得的學分，才加入 checked_course_ids
                 if name in self.passed_course_names:
-                    self.checked_course_ids.add(str(c_id))
+                    personal_credits = self.course_best_grades[name]['credits']
+                    try:
+                        match_credits = (float(credits_v) == float(personal_credits))
+                    except:
+                        match_credits = (credits_v == personal_credits)
+                        
+                    if match_credits and name not in already_auto_checked:
+                        self.checked_course_ids.add(str(c_id))
+                        already_auto_checked.add(name)
 
                 self.all_courses.append({
                     "id": str(c_id),
@@ -317,6 +332,9 @@ class GraduationGUI(ctk.CTk):
             match_day = (day_q == "所有星期" or day_q in c['days'])
             if match_name and match_sem and match_day:
                 self.filtered_courses.append(c)
+        
+        # 排序：將系統自動勾選（已在 passed_course_names 中）的課程排在最前面
+        self.filtered_courses.sort(key=lambda c: 0 if c['name'] in self.passed_course_names else 1)
         
         self.current_page = 1
         self.render_page()
@@ -397,7 +415,7 @@ class GraduationGUI(ctk.CTk):
             
             grade_info = ""
             if hasattr(self, 'course_best_grades') and c['name'] in self.course_best_grades:
-                g = self.course_best_grades[c['name']]
+                g = self.course_best_grades[c['name']]['grade']
                 if c['name'] in self.passed_course_names:
                     grade_info = f"  |  🏆 {g}"
                 else:
@@ -479,18 +497,21 @@ class GraduationGUI(ctk.CTk):
         
         sum_total = sum_obligatory = sum_elective = sum_general = 0
         
-        # 統計勾選的學分數
+        # 統計勾選的學分數，避免同名課程重複計算
+        counted_course_names = set()
         for c_id in self.checked_course_ids:
             # 在 all_courses 找這筆資料
             course = next((c for c in self.all_courses if c['id'] == c_id), None)
             if course:
-                sum_total += course['credits']
-                if course['category'] == '通識':
-                    sum_general += course['credits']
-                elif course['category'] == '必修':
-                    sum_obligatory += course['credits']
-                else:
-                    sum_elective += course['credits']
+                if course['name'] not in counted_course_names:
+                    sum_total += course['credits']
+                    if course['category'] == '通識':
+                        sum_general += course['credits']
+                    elif course['category'] == '必修':
+                        sum_obligatory += course['credits']
+                    else:
+                        sum_elective += course['credits']
+                    counted_course_names.add(course['name'])
 
         # 更新進度條與數值
         self.lbl_total_prog.configure(text=f"🎯 總學分進度: {sum_total} / {total_req}")

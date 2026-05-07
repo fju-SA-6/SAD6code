@@ -6,6 +6,9 @@ import math
 import platform
 import os
 import datetime
+import sys
+import subprocess
+import threading
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -234,37 +237,69 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
-            # 1. 取得已過關之個人成績
-            cursor.execute("SELECT course_name, grade FROM FJU_Personal_Grades")
+            # 1. 取得已過關之個人成績，並找出重複修課時最好的成績，同時記錄該科學分數
+            self.course_best_grades = {}
+            cursor.execute("SELECT course_name, grade, credits FROM FJU_Personal_Grades")
+            
+            def get_grade_val(g):
+                if g.isdigit(): return int(g)
+                if g in ['抵免', '通過']: return 60 # 將抵免/通過視為 60 分以利於高於未評定等狀態
+                return -1 # 其他如未評定、不及格等視為 -1
+
             for row in cursor.fetchall():
                 c_name, grade = row[0], row[1].strip() if row[1] else ""
+                c_credits = float(row[2]) if row[2] else 0.0
+                c_credits = int(c_credits) if c_credits == int(c_credits) else c_credits
+
+                current_val = get_grade_val(grade)
+                
+                if c_name not in self.course_best_grades:
+                    self.course_best_grades[c_name] = {'grade': grade, 'credits': c_credits}
+                else:
+                    best_val = get_grade_val(self.course_best_grades[c_name]['grade'])
+                    if current_val > best_val:
+                        self.course_best_grades[c_name] = {'grade': grade, 'credits': c_credits}
+            
+            for c_name, data in self.course_best_grades.items():
+                grade = data['grade']
                 is_passed = False
                 if grade.isdigit() and int(grade) >= 60:
                     is_passed = True
-                elif grade not in ['不及格', '未通過', '停修', 'W', 'F', '']:
+                elif grade not in ['不及格', '未通過', '停修', 'W', 'F', '', '未評定成績']:
                     is_passed = True
                 
                 if is_passed:
                     self.passed_course_names.add(c_name)
 
             # 2. 取得所有課程資料
+            # 2. 取得所有課程資料，將「課名相同且學分相同」的合併顯示
             sql = """
                 SELECT id, course_name, credits, category, 
                        GROUP_CONCAT(DISTINCT semester) as semesters, 
                        GROUP_CONCAT(DISTINCT day_of_week) as days, 
                        GROUP_CONCAT(DISTINCT teacher SEPARATOR ', ') as teachers 
                 FROM FJU_Courses 
-                GROUP BY course_name 
-                ORDER BY category, course_name
+                GROUP BY course_name, credits
+                ORDER BY category, course_name, credits
             """
             cursor.execute(sql)
             self.all_courses = []
+            
+            already_auto_checked = set()
             for row in cursor.fetchall():
                 c_id, name, credits_v, category, sems, days, teachers = row
                 
-                # 自動勾選邏輯：若在已通過名單內，加入 checked_course_ids
+                # 自動勾選邏輯：若在已通過名單內，且學分數符合個人真實獲得的學分，才加入 checked_course_ids
                 if name in self.passed_course_names:
-                    self.checked_course_ids.add(str(c_id))
+                    personal_credits = self.course_best_grades[name]['credits']
+                    try:
+                        match_credits = (float(credits_v) == float(personal_credits))
+                    except:
+                        match_credits = (credits_v == personal_credits)
+                        
+                    if match_credits and name not in already_auto_checked:
+                        self.checked_course_ids.add(str(c_id))
+                        already_auto_checked.add(name)
 
                 self.all_courses.append({
                     "id": str(c_id),
@@ -297,6 +332,9 @@ class GraduationGUI(ctk.CTk):
             match_day = (day_q == "所有星期" or day_q in c['days'])
             if match_name and match_sem and match_day:
                 self.filtered_courses.append(c)
+        
+        # 排序：將系統自動勾選（已在 passed_course_names 中）的課程排在最前面
+        self.filtered_courses.sort(key=lambda c: 0 if c['name'] in self.passed_course_names else 1)
         
         self.current_page = 1
         self.render_page()
@@ -375,12 +413,20 @@ class GraduationGUI(ctk.CTk):
             # 美化 CheckBox 色彩與設定
             color = "#ff4444" if c['category'] == "必修" else "#00C851"
             
+            grade_info = ""
+            if hasattr(self, 'course_best_grades') and c['name'] in self.course_best_grades:
+                g = self.course_best_grades[c['name']]['grade']
+                if c['name'] in self.passed_course_names:
+                    grade_info = f"  |  🏆 {g}"
+                else:
+                    grade_info = f"  |  ❌ {g}"
+            
             def make_cmd(c_id=c['id'], var=v):
                 return lambda: self.toggle_course(c_id, var.get())
 
             chk = ctk.CTkCheckBox(
                 self.list_frame, 
-                text=f"【{c['category']}】 {c['name']}  —  {c['credits']} 學分  |  👨‍🏫 {c['teachers']}",
+                text=f"【{c['category']}】 {c['name']}  —  {c['credits']} 學分  |  👨‍🏫 {c['teachers']}{grade_info}",
                 variable=v,
                 onvalue="on",
                 offvalue="off",
@@ -451,18 +497,21 @@ class GraduationGUI(ctk.CTk):
         
         sum_total = sum_obligatory = sum_elective = sum_general = 0
         
-        # 統計勾選的學分數
+        # 統計勾選的學分數，避免同名課程重複計算
+        counted_course_names = set()
         for c_id in self.checked_course_ids:
             # 在 all_courses 找這筆資料
             course = next((c for c in self.all_courses if c['id'] == c_id), None)
             if course:
-                sum_total += course['credits']
-                if course['category'] == '通識':
-                    sum_general += course['credits']
-                elif course['category'] == '必修':
-                    sum_obligatory += course['credits']
-                else:
-                    sum_elective += course['credits']
+                if course['name'] not in counted_course_names:
+                    sum_total += course['credits']
+                    if course['category'] == '通識':
+                        sum_general += course['credits']
+                    elif course['category'] == '必修':
+                        sum_obligatory += course['credits']
+                    else:
+                        sum_elective += course['credits']
+                    counted_course_names.add(course['name'])
 
         # 更新進度條與數值
         self.lbl_total_prog.configure(text=f"🎯 總學分進度: {sum_total} / {total_req}")
@@ -779,6 +828,92 @@ class GraduationGUI(ctk.CTk):
         except Exception as e:
             messagebox.showerror("匯出錯誤", f"匯出 PDF 發生錯誤：\n{e}")
 
+class LoginWindow(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("🎓 輔大系統登入")
+        self.geometry("450x550")
+        
+        ctk.set_appearance_mode("Dark")
+        ctk.set_default_color_theme("blue")
+        
+        self.f_title = ("Helvetica", 28, "bold")
+        self.f_body = ("Helvetica", 16)
+        
+        self.lbl_title = ctk.CTkLabel(self, text="🎓 輔大成績爬蟲登入", font=self.f_title)
+        self.lbl_title.pack(pady=(50, 30))
+        
+        self.entry_account = ctk.CTkEntry(self, placeholder_text="請輸入學號 (帳號)", font=self.f_body, width=280, height=45)
+        self.entry_account.pack(pady=15)
+        
+        self.entry_password = ctk.CTkEntry(self, placeholder_text="請輸入密碼", show="*", font=self.f_body, width=280, height=45)
+        self.entry_password.pack(pady=15)
+        
+        self.btn_run = ctk.CTkButton(self, text="🚀 開始更新資料", font=("Helvetica", 18, "bold"), width=280, height=50, command=self.start_scraping)
+        self.btn_run.pack(pady=30)
+        
+        self.lbl_status = ctk.CTkLabel(self, text="請輸入您的輔大 SIS 系統帳號密碼", font=("Helvetica", 14), text_color="gray60")
+        self.lbl_status.pack(pady=10)
+        
+        self.btn_skip = ctk.CTkButton(self, text="跳過更新，直接開啟查核系統", font=("Helvetica", 14), fg_color="transparent", border_width=1, text_color="gray80", hover_color="gray30", command=self.open_main_gui)
+        self.btn_skip.pack(pady=10)
+
+    def start_scraping(self):
+        account = self.entry_account.get().strip()
+        password = self.entry_password.get().strip()
+        
+        if not account or not password:
+            messagebox.showwarning("警告", "請輸入帳號與密碼！")
+            return
+            
+        os.environ['FJU_ACCOUNT'] = account
+        os.environ['FJU_PASSWORD'] = password
+        
+        self.btn_run.configure(state="disabled")
+        self.btn_skip.configure(state="disabled")
+        self.entry_account.configure(state="disabled")
+        self.entry_password.configure(state="disabled")
+        
+        self.lbl_status.configure(text="⏳ 正在背景啟動瀏覽器...", text_color="#33b5e5")
+        
+        threading.Thread(target=self.run_scripts_thread, daemon=True).start()
+        
+    def run_scripts_thread(self):
+        python_exe = sys.executable
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        try:
+            self.after(0, lambda: self.lbl_status.configure(text="⏳ [1/2] 正在執行 test1.py (個人成績)..."))
+            proc1 = subprocess.run([python_exe, "test1.py"], cwd=script_dir)
+            if proc1.returncode != 0:
+                self.after(0, self.show_error, "test1.py 執行失敗", "請查看終端機輸出以了解錯誤原因。")
+                return
+                
+            self.after(0, lambda: self.lbl_status.configure(text="⏳ [2/2] 正在執行 test2.py (畢業檢核表)..."))
+            proc2 = subprocess.run([python_exe, "test2.py"], cwd=script_dir)
+            if proc2.returncode != 0:
+                self.after(0, self.show_error, "test2.py 執行失敗", "請查看終端機輸出以了解錯誤原因。")
+                return
+                
+            self.after(0, lambda: self.lbl_status.configure(text="✅ 更新完成！正在開啟系統...", text_color="#00C851"))
+            self.after(1000, self.open_main_gui)
+            
+        except Exception as e:
+            self.after(0, self.show_error, "執行發生例外錯誤", str(e))
+            
+    def show_error(self, title, msg):
+        messagebox.showerror(title, msg)
+        self.btn_run.configure(state="normal")
+        self.btn_skip.configure(state="normal")
+        self.entry_account.configure(state="normal")
+        self.entry_password.configure(state="normal")
+        self.lbl_status.configure(text="❌ 執行失敗，請重試", text_color="#ff4444")
+        
+    def open_main_gui(self):
+        self.destroy()
+        app = GraduationGUI()
+        app.mainloop()
+
 if __name__ == "__main__":
-    app = GraduationGUI()
+    app = LoginWindow()
     app.mainloop()

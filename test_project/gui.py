@@ -287,7 +287,14 @@ class GraduationGUI(ctk.CTk):
             
             already_auto_checked = set()
             for row in cursor.fetchall():
-                c_id, name, credits_v, category, sems, days, teachers = row
+                c_id, name, credits_v_raw, category, sems, days, teachers = row
+                
+                # 確保 credits_v 為數值型態，避免後續加總時發生字串相加的錯誤
+                try:
+                    c_val = float(credits_v_raw)
+                    credits_v = int(c_val) if c_val == int(c_val) else c_val
+                except:
+                    credits_v = 0
                 
                 # 自動勾選邏輯：若在已通過名單內，且學分數符合個人真實獲得的學分，才加入 checked_course_ids
                 if name in self.passed_course_names:
@@ -422,7 +429,7 @@ class GraduationGUI(ctk.CTk):
                     grade_info = f"  |  ❌ {g}"
             
             def make_cmd(c_id=c['id'], var=v):
-                return lambda: self.toggle_course(c_id, var.get())
+                self.toggle_course(c_id, var.get())
 
             chk = ctk.CTkCheckBox(
                 self.list_frame, 

@@ -34,13 +34,13 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `FJU_Courses` (
     `id` int(11) NOT NULL,
-    `academic_year` varchar(10) NOT NULL,
-    `semester` varchar(10) NOT NULL,
-    `course_name` varchar(100) NOT NULL,
-    `teacher` varchar(50) DEFAULT NULL,
+    `academic_year` int(11) NOT NULL,
+    `semester` varchar(3) NOT NULL,
+    `course_name` varchar(50) NOT NULL,
+    `teacher` varchar(20) DEFAULT NULL,
     `credits` int(11) DEFAULT NULL,
-    `category` varchar(20) DEFAULT NULL,
-    `day_of_week` varchar(20) DEFAULT NULL,
+    `category` varchar(3) DEFAULT NULL,
+    `day_of_week` varchar(10) DEFAULT NULL,
     `period` varchar(100) DEFAULT NULL,
     `classroom` varchar(100) DEFAULT NULL,
     `created_at` timestamp NOT NULL DEFAULT current_timestamp()
@@ -137200,9 +137200,9 @@ VALUES (
 
 CREATE TABLE `FJU_GenEd_Departments` (
     `id` int(11) NOT NULL,
-    `semester` varchar(20) NOT NULL DEFAULT '下學期',
-    `course_name` varchar(100) NOT NULL,
-    `department_name` varchar(100) NOT NULL,
+    `semester` varchar(3) NOT NULL DEFAULT '下學期',
+    `course_name` varchar(50) NOT NULL,
+    `department_name` varchar(10) NOT NULL,
     `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
 
@@ -139873,12 +139873,12 @@ VALUES (
 
 CREATE TABLE `FJU_Graduation_Check` (
     `id` int(11) NOT NULL,
-    `category` varchar(20) DEFAULT NULL,
+    `category` varchar(10) DEFAULT NULL,
     `requirement_name` varchar(50) DEFAULT NULL,
     `is_completed` tinyint(1) DEFAULT NULL,
-    `semester` varchar(20) DEFAULT NULL,
-    `course_name` varchar(100) DEFAULT NULL,
-    `grade` varchar(20) DEFAULT NULL,
+    `semester` varchar(10) DEFAULT NULL,
+    `course_name` varchar(50) DEFAULT NULL,
+    `grade` varchar(10) DEFAULT NULL,
     `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
 
@@ -140326,10 +140326,10 @@ VALUES (
 
 CREATE TABLE `FJU_Personal_Grades` (
     `id` int(11) NOT NULL,
-    `course_type` varchar(20) DEFAULT NULL,
-    `academic_year` varchar(10) DEFAULT NULL,
-    `semester` varchar(10) DEFAULT NULL,
-    `category` varchar(20) DEFAULT NULL,
+    `course_type` varchar(10) DEFAULT NULL,
+    `academic_year` int(11) DEFAULT NULL,
+    `semester` tinyint(4) DEFAULT NULL,
+    `category` varchar(10) DEFAULT NULL,
     `course_name` varchar(100) DEFAULT NULL,
     `credits` int(11) DEFAULT NULL,
     `grade` varchar(10) DEFAULT NULL,

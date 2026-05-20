@@ -1,19 +1,19 @@
 # fju_SAD_6_code
 
 ## 已完成
-sp1:
+### sp1:
 抓fju課程資料
 抓個人的學分資料
 分析缺少的學分
 推薦課程
-sp2:
+### sp2:
 把php網頁改成python_gui
 加上「分析圖表」和「匯出結果成pdf」
 前端（替代使用account.txt）
 重複修同一科計算分數最好的
 抓取通識的分類（在https://outline.fju.edu.tw/#/outlineSearch/searchView 遇到通識點擊課程大綱裡面的「開課單位：」）
 讓系統自動勾選的顯示在最前面
-sp3:
+### sp3:
 按老師找課程
 單開一格顯示體育有沒有過
 把分析圖一起匯出到pdf

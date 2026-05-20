@@ -13,18 +13,18 @@ sp2:
 重複修同一科計算分數最好的
 抓取通識的分類（在https://outline.fju.edu.tw/#/outlineSearch/searchView 遇到通識點擊課程大綱裡面的「開課單位：」）
 讓系統自動勾選的顯示在最前面
+sp3:
+按老師找課程
+單開一格顯示體育有沒有過
+把分析圖一起匯出到pdf
+通識分類顯示與永續素養計算機制
+更新（重拉）學校資料的按鈕放在前端（get_school_info/fju_scraper.py + get_school_info/scrape_general_edu.py）
 
 ## 未完成
 別系的畢業門檻
 根據不同系的學生推計不同的課程
 擋修
 英檢之類的門檻檢測
-通識分類顯示
-按老師找課程
-永續在113有分類
-單開一格顯示體育有沒有過
-把分析圖一起匯出到pdf
-更新（重拉）學校資料的按鈕放在前端（get_school_info/fju_scraper.py + get_school_info/scrape_general_edu.py）
 包裝成完整.app/.exe
 
 ## 不會做

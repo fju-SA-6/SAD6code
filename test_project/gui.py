@@ -9,6 +9,7 @@ import datetime
 import sys
 import subprocess
 import threading
+import tempfile
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -90,9 +91,13 @@ class GraduationGUI(ctk.CTk):
         self.filter_frame = ctk.CTkFrame(self.tab_courses, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
         self.filter_frame.pack(fill="x", padx=10, pady=10)
 
-        self.search_entry = ctk.CTkEntry(self.filter_frame, placeholder_text="🔍 搜尋課程名稱...", font=self.f_body, height=40, border_width=1)
-        self.search_entry.pack(side="left", padx=15, pady=15, expand=True, fill="x")
+        self.search_entry = ctk.CTkEntry(self.filter_frame, placeholder_text="🔍 搜尋課程...", font=self.f_body, height=40, border_width=1)
+        self.search_entry.pack(side="left", padx=10, pady=15, expand=True, fill="x")
         self.search_entry.bind("<KeyRelease>", self.on_filter_change)
+
+        self.teacher_search_entry = ctk.CTkEntry(self.filter_frame, placeholder_text="👨‍🏫 搜尋老師...", font=self.f_body, height=40, border_width=1)
+        self.teacher_search_entry.pack(side="left", padx=10, pady=15, expand=True, fill="x")
+        self.teacher_search_entry.bind("<KeyRelease>", self.on_filter_change)
 
         self.sys_rule_var = ctk.StringVar(value="113(含)以前學士班")
         self.sys_rule_menu = ctk.CTkOptionMenu(
@@ -126,6 +131,9 @@ class GraduationGUI(ctk.CTk):
 
         self.btn_check = ctk.CTkButton(self.action_frame, text="🚀 查核學分", font=self.f_title, height=45, fg_color="#00C851", hover_color="#007E33", command=self.do_graduation_check)
         self.btn_check.pack(side="right", padx=5)
+
+        self.btn_update_db = ctk.CTkButton(self.action_frame, text="🔄 重新擷取學校資料", font=self.f_btn, height=35, fg_color="#33b5e5", hover_color="#0099cc", command=self.update_school_db)
+        self.btn_update_db.pack(side="right", padx=15)
 
         # 中間滾動清單 (外框美化)
         self.list_frame = ctk.CTkScrollableFrame(self.tab_courses, corner_radius=15, fg_color="gray12", border_width=1, border_color="gray20")
@@ -182,7 +190,14 @@ class GraduationGUI(ctk.CTk):
         self.lbl_gen_prog.pack(anchor="w", padx=30, pady=(5, 5))
         self.prog_gen = ctk.CTkProgressBar(self.res_stats_frame, height=20, corner_radius=10, progress_color="#9933cc")
         self.prog_gen.set(0)
-        self.prog_gen.pack(fill="x", padx=30, pady=(0, 20))
+        self.prog_gen.pack(fill="x", padx=30, pady=(0, 5))
+
+        self.lbl_gen_details = ctk.CTkLabel(self.res_stats_frame, text="人文與藝術: 0  |  自然與科技: 0  |  社會科學: 0", font=self.f_small, text_color="gray70", justify="left")
+        self.lbl_gen_details.pack(anchor="w", padx=35, pady=(0, 15))
+
+        # 體育 (PE)
+        self.lbl_pe_prog = ctk.CTkLabel(self.res_stats_frame, text="🏃 體育: 尚未查核", font=self.f_header)
+        self.lbl_pe_prog.pack(anchor="w", padx=30, pady=(0, 20))
 
         self.lbl_status = ctk.CTkLabel(self.res_stats_frame, text="狀態：尚未查核", font=self.f_header, text_color="orange")
         self.lbl_status.pack(pady=(5, 5))
@@ -329,15 +344,17 @@ class GraduationGUI(ctk.CTk):
 
     def apply_filter(self):
         search_q = self.search_entry.get().strip().lower()
+        teacher_q = self.teacher_search_entry.get().strip().lower()
         sem_q = self.semester_var.get()
         day_q = self.day_var.get()
 
         self.filtered_courses = []
         for c in self.all_courses:
             match_name = search_q in c['name'].lower()
+            match_teacher = teacher_q in c['teachers'].lower()
             match_sem = (sem_q == "所有學期" or sem_q in c['semesters'])
             match_day = (day_q == "所有星期" or day_q in c['days'])
-            if match_name and match_sem and match_day:
+            if match_name and match_teacher and match_sem and match_day:
                 self.filtered_courses.append(c)
         
         # 排序：將系統自動勾選（已在 passed_course_names 中）的課程排在最前面
@@ -503,6 +520,8 @@ class GraduationGUI(ctk.CTk):
         elective_req = 48
         
         sum_total = sum_obligatory = sum_elective = sum_general = 0
+        pe_count = 0
+        taken_domains = {"人文與藝術": 0, "自然與科技": 0, "社會科學": 0, "永續素養": 0}
         
         # 統計勾選的學分數，避免同名課程重複計算
         counted_course_names = set()
@@ -514,10 +533,17 @@ class GraduationGUI(ctk.CTk):
                     sum_total += course['credits']
                     if course['category'] == '通識':
                         sum_general += course['credits']
+                        dom = self.categorize_domain(course['name'])
+                        taken_domains[dom] += course['credits']
                     elif course['category'] == '必修':
                         sum_obligatory += course['credits']
                     else:
                         sum_elective += course['credits']
+                        
+                    pe_keywords = ['體育', '網球', '棒球', '足球', '羽球', '體適能', '體式能', '籃球', '排球', '桌球', '高爾夫', '游泳', '撞球', '保齡球', '舞蹈', '柔道', '跆拳道', '太極拳', '武術', '田徑', '飛盤', '軟網', '壘球', '扯鈴', '瑜珈', '木球', '皮拉提斯', '飛輪']
+                    if any(kw in course['name'] for kw in pe_keywords):
+                        pe_count += 1
+                        
                     counted_course_names.add(course['name'])
 
         # 更新進度條與數值
@@ -533,18 +559,32 @@ class GraduationGUI(ctk.CTk):
         self.lbl_gen_prog.configure(text=f"🌍 通識學分: {sum_general} / {gen_req}")
         self.prog_gen.set(min(1.0, sum_general / gen_req))
 
+        if "114" in sys_rule:
+            detail_text = (f"人文與藝術: {taken_domains['人文與藝術']}  |  自然與科技: {taken_domains['自然與科技']}\n"
+                           f"社會科學: {taken_domains['社會科學']}  |  永續素養: {taken_domains['永續素養']}")
+        else:
+            detail_text = (f"人文與藝術: {taken_domains['人文與藝術']}  |  自然與科技: {taken_domains['自然與科技']}\n"
+                           f"社會科學: {taken_domains['社會科學']}")
+        self.lbl_gen_details.configure(text=detail_text)
+
+        if pe_count >= 4:
+            self.lbl_pe_prog.configure(text=f"🏃 體育: 已通過 ({pe_count} / 4 門)", text_color="#00C851")
+        else:
+            self.lbl_pe_prog.configure(text=f"🏃 體育: 缺 {4 - pe_count} 門", text_color="#ff4444")
+
         total_gap = max(0, total_req - sum_total)
         ob_gap = max(0, obligatory_req - sum_obligatory)
         el_gap = max(0, elective_req - sum_elective)
         gen_gap = max(0, gen_req - sum_general)
 
-        if total_gap == 0 and ob_gap == 0 and el_gap == 0 and gen_gap == 0:
+        if total_gap == 0 and ob_gap == 0 and el_gap == 0 and gen_gap == 0 and pe_count >= 4:
             self.lbl_status.configure(text="🎉 恭喜！您已滿足所有畢業要求！", text_color="#00C851")
         else:
-            self.lbl_status.configure(text=f"⚠️ 缺口: 必修缺 {ob_gap}  /  選修缺 {el_gap}  /  通識缺 {gen_gap}", text_color="#ff4444")
+            pe_gap_text = f" / 體育缺 {4 - pe_count} 門" if pe_count < 4 else ""
+            self.lbl_status.configure(text=f"⚠️ 缺口: 必修缺 {ob_gap}  /  選修缺 {el_gap}  /  通識缺 {gen_gap}{pe_gap_text}", text_color="#ff4444")
 
         # 產生推薦修課清單
-        self.generate_recommendations(ob_gap, el_gap, gen_gap)
+        self.generate_recommendations(ob_gap, el_gap, gen_gap, taken_domains)
         
         # 更新分析圖表
         self.update_chart(sum_obligatory, ob_gap, sum_elective, el_gap, sum_general, gen_gap)
@@ -606,7 +646,19 @@ class GraduationGUI(ctk.CTk):
         self.ax.axis('equal')  
         self.canvas.draw()
 
-    def generate_recommendations(self, ob_gap, el_gap, gen_gap):
+    def categorize_domain(self, name):
+        domain_keywords = {
+            "人文與藝術": ['文學', '哲學', '聽覺', '視覺', '表演', '生活藝術', '藝術', '歷史', '文化', '音樂', '中世紀', '思想', '唐宋', '倫理', '論'],
+            "自然與科技": ['醫學', '自然', '資訊', '科技', '民生', '地球', '電腦', '程式', '生態', '健康', '癌症', '診斷', '人體', '應用', '數位'],
+            "社會科學": ['管理', '教育', '心理', '社會', '宗教', '政治', '經濟', '法律', '傳播', '國際', '發展', '外交', '關係'],
+            "永續素養": ['永續', '風險', '多元', 'SDGs']
+        }
+        for domain, kws in domain_keywords.items():
+            if any(kw in name for kw in kws):
+                return domain
+        return "人文與藝術"
+
+    def generate_recommendations(self, ob_gap, el_gap, gen_gap, taken_domains=None):
         # 正確清空舊推薦
         for w in self.rec_widgets:
             try:
@@ -639,25 +691,17 @@ class GraduationGUI(ctk.CTk):
                 if req_name_clean:
                     priority_cases.append(req_name_clean)
 
-            # --- 通識領域關鍵字篩選函式 ---
-            domain_keywords = {
-                "人文與藝術": ['文學', '哲學', '聽覺', '視覺', '表演', '生活藝術', '藝術', '歷史', '文化', '音樂', '中世紀', '思想', '唐宋', '倫理', '論'],
-                "自然與科技": ['醫學', '自然', '資訊', '科技', '民生', '地球', '電腦', '程式', '生態', '健康', '癌症', '診斷', '人體', '應用', '數位'],
-                "社會科學": ['管理', '教育', '心理', '社會', '宗教', '政治', '經濟', '法律', '傳播', '國際', '發展', '外交', '關係'],
-                "永續素養": ['永續', '風險', '多元', 'SDGs']
-            }
-            def categorize_domain(name):
-                for domain, kws in domain_keywords.items():
-                    if any(kw in name for kw in kws):
-                        return domain
-                return "人文與藝術" # 預設指派
-
             # --- 計算通識各領域的滿足狀況 ---
-            taken_general = [c for c in self.all_courses if c['id'] in self.checked_course_ids and c['category'] == '通識']
-            taken_domains = {"人文與藝術": 0, "自然與科技": 0, "社會科學": 0, "永續素養": 0, "任一通識": 0}
-            for tc in taken_general:
-                dom = categorize_domain(tc['name'])
-                taken_domains[dom] += tc['credits']
+            if taken_domains is None:
+                taken_general = [c for c in self.all_courses if c['id'] in self.checked_course_ids and c['category'] == '通識']
+                taken_domains = {"人文與藝術": 0, "自然與科技": 0, "社會科學": 0, "永續素養": 0, "任一通識": 0}
+                for tc in taken_general:
+                    dom = self.categorize_domain(tc['name'])
+                    taken_domains[dom] += tc['credits']
+            
+            # 確保有任一通識的鍵值
+            if "任一通識" not in taken_domains:
+                taken_domains["任一通識"] = 0
 
             # 計算各領域通識缺口
             domain_gaps = {}
@@ -685,7 +729,7 @@ class GraduationGUI(ctk.CTk):
                 if n not in taken_names:
                     cand = {"name": n, "credits": cr, "category": cat}
                     if cat == "通識":
-                        cand["domain"] = categorize_domain(n)
+                        cand["domain"] = self.categorize_domain(n)
                         general_candidates.append(cand)
                     candidates.append(cand)
 
@@ -764,6 +808,36 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
+            # --- 處理圖表暫存 ---
+            temp_chart_path = os.path.join(tempfile.gettempdir(), "fju_chart_export.png")
+            
+            # 暫時將背景轉為白色以適合列印
+            orig_facecolor = self.fig.get_facecolor()
+            self.fig.patch.set_facecolor('white')
+            
+            # 將中間的圓環背景與外圍文字轉成白底黑字
+            for artist in self.ax.patches:
+                if isinstance(artist, plt.Circle):
+                    artist.set_facecolor('white')
+                    
+            orig_texts_color = []
+            for t in self.ax.texts:
+                orig_texts_color.append(t.get_color())
+                t.set_color('black')
+                
+            # 儲存圖片
+            self.fig.savefig(temp_chart_path, format="png", bbox_inches="tight", dpi=150)
+            
+            # 復原深色主題
+            self.fig.patch.set_facecolor(orig_facecolor)
+            for artist in self.ax.patches:
+                if isinstance(artist, plt.Circle):
+                    artist.set_facecolor('#2B2B2B')
+            for i, t in enumerate(self.ax.texts):
+                t.set_color(orig_texts_color[i])
+            self.canvas.draw()
+            # ---------------------
+
             pdf = FPDF()
             pdf.add_page()
             
@@ -804,13 +878,34 @@ class GraduationGUI(ctk.CTk):
             pdf.cell(190, 8, txt=self.lbl_elec_prog.cget("text"), ln=True)
             pdf.cell(190, 8, txt=self.lbl_gen_prog.cget("text"), ln=True)
             
+            pdf.set_font('tc_font', '', 10) if has_tc_font else None
+            pdf.set_text_color(100, 100, 100)
+            for d_line in self.lbl_gen_details.cget("text").split('\n'):
+                pdf.cell(190, 6, txt="      " + d_line, ln=True)
+            
+            pdf.set_font('tc_font', '', 12) if has_tc_font else None
+            pdf.set_text_color(0, 0, 0)
+            pdf.cell(190, 8, txt=self.lbl_pe_prog.cget("text"), ln=True)
+            
             pdf.ln(5)
             # 處理帶有多行的狀態字串
             status_lines = self.lbl_status.cget("text").split('\n')
             for line in status_lines:
                 pdf.cell(190, 8, txt=line, ln=True)
                 
-            pdf.ln(10)
+            # --- 插入圖表 ---
+            pdf.ln(5)
+            if os.path.exists(temp_chart_path):
+                current_y = pdf.get_y()
+                # 置中擺放圖表
+                pdf.image(temp_chart_path, x=55, y=current_y, w=100)
+                pdf.ln(80) # 預留圖表高度空間
+                try:
+                    os.remove(temp_chart_path)
+                except:
+                    pass
+                
+            pdf.ln(5)
             pdf.set_line_width(0.2)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             
@@ -831,9 +926,62 @@ class GraduationGUI(ctk.CTk):
             
             pdf.output(filepath)
             messagebox.showinfo("匯出成功", f"報告已成功儲存至：\n{filepath}")
-            
         except Exception as e:
             messagebox.showerror("匯出錯誤", f"匯出 PDF 發生錯誤：\n{e}")
+
+    def update_school_db(self):
+        if not messagebox.askyesno("確認更新", "這將開啟自動化瀏覽器重新抓取輔大最新的課程清單與通識分類資料。\n\n過程可能需要 5 ~ 10 分鐘，期間請勿關閉主程式或彈出的瀏覽器視窗，確定要繼續嗎？"):
+            return
+            
+        self.btn_update_db.configure(state="disabled", text="⏳ 正在擷取中...")
+        self.btn_check.configure(state="disabled")
+        
+        # 建立進度視窗
+        self.progress_win = ctk.CTkToplevel(self)
+        self.progress_win.title("資料更新進度")
+        self.progress_win.geometry("400x150")
+        self.progress_win.transient(self) # 綁定在主視窗上
+        self.progress_win.grab_set() # 鎖定主視窗 (強制停留)
+        
+        lbl = ctk.CTkLabel(self.progress_win, text="🚀 正在啟動爬蟲抓取資料\n請勿操作滑鼠或關閉視窗，這可能需要幾分鐘...", font=self.f_body)
+        lbl.pack(pady=20)
+        
+        prog = ctk.CTkProgressBar(self.progress_win, mode="indeterminate", width=300, progress_color="#33b5e5")
+        prog.pack(pady=10)
+        prog.start()
+        
+        def run_scraper():
+            try:
+                # 使用 sys.executable 確保使用同一個虛擬環境中的 python
+                # 執行主課程爬蟲
+                subprocess.run([sys.executable, "get_school_info/fju_scraper.py"], check=True)
+                # 執行通識分類爬蟲
+                subprocess.run([sys.executable, "get_school_info/scrape_general_edu.py"], check=True)
+                
+                # 執行完成後，透過 after 回到主執行緒處理 UI
+                self.after(0, self.on_update_success)
+            except subprocess.CalledProcessError as e:
+                self.after(0, lambda err=e: self.on_update_fail(err))
+            except Exception as e:
+                self.after(0, lambda err=e: self.on_update_fail(err))
+                
+        # 在背景執行緒中啟動，避免凍結 GUI
+        threading.Thread(target=run_scraper, daemon=True).start()
+
+    def on_update_success(self):
+        if hasattr(self, 'progress_win') and self.progress_win.winfo_exists():
+            self.progress_win.destroy()
+        messagebox.showinfo("更新成功", "學校課程資料與通識分類已成功更新！\n系統即將為您重新載入資料。")
+        self.btn_update_db.configure(state="normal", text="🔄 重新擷取學校資料")
+        self.btn_check.configure(state="normal")
+        self.load_data_from_db()
+
+    def on_update_fail(self, error):
+        if hasattr(self, 'progress_win') and self.progress_win.winfo_exists():
+            self.progress_win.destroy()
+        messagebox.showerror("更新失敗", f"執行爬蟲時發生錯誤：\n{error}")
+        self.btn_update_db.configure(state="normal", text="🔄 重新擷取學校資料")
+        self.btn_check.configure(state="normal")
 
 class LoginWindow(ctk.CTk):
     def __init__(self):

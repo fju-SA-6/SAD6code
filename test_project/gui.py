@@ -10,6 +10,7 @@ import sys
 import subprocess
 import threading
 import tempfile
+import json
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -229,6 +230,7 @@ class GraduationGUI(ctk.CTk):
 
         self.rec_scroll = ctk.CTkScrollableFrame(self.res_rec_frame, fg_color="transparent")
         self.rec_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
 
     # ---------------- 邏輯函數 ----------------
 
@@ -519,6 +521,23 @@ class GraduationGUI(ctk.CTk):
         obligatory_req = 80 - gen_req  # 將原必修目標扣除通識
         elective_req = 48
         
+        dep = os.environ.get('FJU_DEPARTMENT', '資訊管理學系-學士班 (114學年度) - 完整補正版')
+        reqs = {}
+        if dep != '通用':
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                json_path = os.path.join(script_dir, "department_reqs.json")
+                with open(json_path, "r", encoding="utf-8") as f:
+                    dep_reqs = json.load(f)
+                    if dep in dep_reqs:
+                        reqs = dep_reqs[dep]
+                        total_req = reqs.get("total", 128)
+                        # 如果有通識扣除，依舊套用
+                        obligatory_req = reqs.get("obligatory", 80) - gen_req
+                        elective_req = reqs.get("elective", 48)
+            except Exception as e:
+                print(f"Failed to load department reqs: {e}")
+        
         sum_total = sum_obligatory = sum_elective = sum_general = 0
         pe_count = 0
         taken_domains = {"人文與藝術": 0, "自然與科技": 0, "社會科學": 0, "永續素養": 0}
@@ -576,15 +595,36 @@ class GraduationGUI(ctk.CTk):
         ob_gap = max(0, obligatory_req - sum_obligatory)
         el_gap = max(0, elective_req - sum_elective)
         gen_gap = max(0, gen_req - sum_general)
+        
+        # 判斷是否缺少各系指定的必修課程
+        req_courses = reqs.get("required_courses", [])
+        taken_course_names = {c['name'] for c in self.all_courses if c['id'] in self.checked_course_ids}
+        
+        missing_req_courses = []
+        for rc in req_courses:
+            found = False
+            for tc in taken_course_names:
+                if rc in tc or tc in rc:
+                    found = True
+                    break
+            if not found:
+                missing_req_courses.append(rc)
+                
+        missing_course_text = ""
+        if missing_req_courses:
+            missing_course_text = f"\n⚠️ 有 {len(missing_req_courses)} 門系所指定必修尚未完成 (詳見右側推薦清單)"
+        elif req_courses:
+            missing_course_text = "\n✅ 系所指定必修已全部完成"
 
-        if total_gap == 0 and ob_gap == 0 and el_gap == 0 and gen_gap == 0 and pe_count >= 4:
-            self.lbl_status.configure(text="🎉 恭喜！您已滿足所有畢業要求！", text_color="#00C851")
+        if total_gap == 0 and ob_gap == 0 and el_gap == 0 and gen_gap == 0 and pe_count >= 4 and not missing_req_courses:
+            self.lbl_status.configure(text=f"🎉 恭喜！您已滿足所有學分要求！{missing_course_text}", text_color="#00C851")
         else:
             pe_gap_text = f" / 體育缺 {4 - pe_count} 門" if pe_count < 4 else ""
-            self.lbl_status.configure(text=f"⚠️ 缺口: 必修缺 {ob_gap}  /  選修缺 {el_gap}  /  通識缺 {gen_gap}{pe_gap_text}", text_color="#ff4444")
+            self.lbl_status.configure(text=f"⚠️ 缺口: 必修缺 {ob_gap}  /  選修缺 {el_gap}  /  通識缺 {gen_gap}{pe_gap_text}{missing_course_text}", text_color="#ff4444")
 
         # 產生推薦修課清單
-        self.generate_recommendations(ob_gap, el_gap, gen_gap, taken_domains)
+        raw_text = reqs.get("raw_text", "")
+        self.generate_recommendations(ob_gap, el_gap, gen_gap, taken_domains, missing_req_courses, raw_text)
         
         # 更新分析圖表
         self.update_chart(sum_obligatory, ob_gap, sum_elective, el_gap, sum_general, gen_gap)
@@ -658,7 +698,9 @@ class GraduationGUI(ctk.CTk):
                 return domain
         return "人文與藝術"
 
-    def generate_recommendations(self, ob_gap, el_gap, gen_gap, taken_domains=None):
+    def generate_recommendations(self, ob_gap, el_gap, gen_gap, taken_domains=None, missing_req_courses=None, raw_text=""):
+        if missing_req_courses is None: missing_req_courses = []
+        
         # 正確清空舊推薦
         for w in self.rec_widgets:
             try:
@@ -668,8 +710,8 @@ class GraduationGUI(ctk.CTk):
         self.rec_widgets.clear()
         self.current_recommendations = []
             
-        if ob_gap == 0 and el_gap == 0 and gen_gap == 0:
-            lbl = ctk.CTkLabel(self.rec_scroll, text="學分已滿，無需推薦修課！", text_color="gray")
+        if ob_gap <= 0 and el_gap <= 0 and gen_gap <= 0 and not missing_req_courses:
+            lbl = ctk.CTkLabel(self.rec_scroll, text="學分與必修皆已滿，無需推薦修課！", text_color="gray")
             lbl.pack(pady=20)
             self.rec_widgets.append(lbl)
             return
@@ -681,16 +723,6 @@ class GraduationGUI(ctk.CTk):
             # 準備已修課的名稱，推薦時避開
             taken_names = [c['name'] for c in self.all_courses if c['id'] in self.checked_course_ids]
             
-            # 從 graduation_db 找缺口 (優先推薦)
-            priority_cases = []
-            cursor.execute("SELECT requirement_name FROM FJU_Graduation_Check WHERE grade = '尚未修課'")
-            for row in cursor.fetchall():
-                req_name_clean = row[0].replace('通識領域', '').replace('領域', '')
-                if '-' in req_name_clean:
-                    req_name_clean = req_name_clean.split('-')[-1]
-                if req_name_clean:
-                    priority_cases.append(req_name_clean)
-
             # --- 計算通識各領域的滿足狀況 ---
             if taken_domains is None:
                 taken_general = [c for c in self.all_courses if c['id'] in self.checked_course_ids and c['category'] == '通識']
@@ -733,20 +765,50 @@ class GraduationGUI(ctk.CTk):
                         general_candidates.append(cand)
                     candidates.append(cand)
 
-            # 計算優先度排序
+            # 計算優先度排序，優先推薦有出現在畢業門檻.md裡的課程
             def sort_key(c):
-                is_priority = any(p in c["name"] for p in priority_cases)
-                return (0 if is_priority else 1, c["name"])
+                is_priority = c["name"] in raw_text
+                return (0 if is_priority else 1, len(c["name"]))
 
             candidates.sort(key=sort_key)
             general_candidates.sort(key=sort_key)
 
             # 開始配置缺漏
+            if missing_req_courses:
+                missing_ob_cands = []
+                missing_el_cands = []
+                for mrc in missing_req_courses:
+                    # try to find credits and category from candidates
+                    found_cr = 2 # default
+                    found_cat = "必修" # default
+                    for c in candidates:
+                        if c["name"] == mrc or mrc in c["name"]:
+                            found_cr = c["credits"]
+                            found_cat = c["category"]
+                            break
+                            
+                    if found_cat == "選修":
+                        missing_el_cands.append({"name": mrc, "credits": found_cr, "category": "選修"})
+                    else:
+                        missing_ob_cands.append({"name": mrc, "credits": found_cr, "category": "必修"})
+                        
+                if missing_ob_cands:
+                    used_ob = self.add_rec_section("【系所指定必修推薦】", missing_ob_cands, "必修", 999, "#dc3545", self.current_recommendations)
+                    if used_ob:
+                        ob_gap -= used_ob
+                if missing_el_cands:
+                    used_el = self.add_rec_section("【系所指定選修推薦】", missing_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
+                    if used_el:
+                        el_gap -= used_el
+                
+                # 過濾掉已經在系所指定必修/選修推薦過的課程，避免重複推薦
+                candidates = [c for c in candidates if c["name"] not in missing_req_courses and not any(mrc in c["name"] for mrc in missing_req_courses)]
+
             if ob_gap > 0:
-                self.add_rec_section("【必修推薦】", candidates, "必修", ob_gap, "#dc3545", self.current_recommendations)
+                self.add_rec_section("【必修學分推薦】", candidates, "必修", ob_gap, "#ff8800", self.current_recommendations)
             
             if el_gap > 0:
-                self.add_rec_section("【選修推薦】", candidates, "選修", el_gap, "#28a745", self.current_recommendations)
+                self.add_rec_section("【選修學分推薦】", candidates, "選修", el_gap, "#28a745", self.current_recommendations)
 
             # 配置通識領域缺漏
             if gen_gap > 0:
@@ -768,7 +830,12 @@ class GraduationGUI(ctk.CTk):
             conn.close()
 
     def add_rec_section(self, title, candidates, category, target_gap, color, rec_list=None):
-        lbl_title = ctk.CTkLabel(self.rec_scroll, text=f"{title} 缺 {target_gap} 學分", font=self.f_header, text_color=color)
+        if target_gap == 999:
+            title_text = title
+        else:
+            title_text = f"{title} 缺 {target_gap} 學分"
+            
+        lbl_title = ctk.CTkLabel(self.rec_scroll, text=title_text, font=self.f_header, text_color=color)
         lbl_title.pack(anchor="w", pady=(15, 10), padx=5)
         self.rec_widgets.append(lbl_title)
 
@@ -793,7 +860,12 @@ class GraduationGUI(ctk.CTk):
                 if accumulated >= target_gap:
                     break
         
-        lbl_info = ctk.CTkLabel(self.rec_scroll, text=f"※ 以上推薦合計提供 {accumulated} 學分可補足此項要求。", text_color="gray60", font=self.f_small)
+        if target_gap == 999:
+            info_text = "※ 以上為您漏勾選的系所指定必修課程。"
+        else:
+            info_text = f"※ 以上推薦合計提供 {accumulated} 學分可補足此項要求。"
+            
+        lbl_info = ctk.CTkLabel(self.rec_scroll, text=info_text, text_color="gray60", font=self.f_small)
         lbl_info.pack(anchor="w", padx=10, pady=(5, 20))
         self.rec_widgets.append(lbl_info)
 
@@ -987,7 +1059,7 @@ class LoginWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("🎓 輔大系統登入")
-        self.geometry("450x550")
+        self.geometry("450x620")
         
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
@@ -1003,6 +1075,20 @@ class LoginWindow(ctk.CTk):
         
         self.entry_password = ctk.CTkEntry(self, placeholder_text="請輸入密碼", show="*", font=self.f_body, width=280, height=45)
         self.entry_password.pack(pady=15)
+        
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(script_dir, "department_reqs.json")
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                self.dep_reqs = json.load(f)
+                departments = ["通用"] + sorted(list(self.dep_reqs.keys()))
+        except:
+            departments = ["通用"]
+            
+        default_dep = "資訊管理學系-學士班 (114學年度) - 完整補正版" if "資訊管理學系-學士班 (114學年度) - 完整補正版" in departments else departments[0]
+        self.department_var = ctk.StringVar(value=default_dep)
+        self.combo_department = ctk.CTkOptionMenu(self, variable=self.department_var, values=departments, font=self.f_body, width=280, height=45)
+        self.combo_department.pack(pady=15)
         
         self.btn_run = ctk.CTkButton(self, text="🚀 開始更新資料", font=("Helvetica", 18, "bold"), width=280, height=50, command=self.start_scraping)
         self.btn_run.pack(pady=30)
@@ -1023,6 +1109,7 @@ class LoginWindow(ctk.CTk):
             
         os.environ['FJU_ACCOUNT'] = account
         os.environ['FJU_PASSWORD'] = password
+        os.environ['FJU_DEPARTMENT'] = self.department_var.get()
         
         self.btn_run.configure(state="disabled")
         self.btn_skip.configure(state="disabled")
@@ -1065,6 +1152,7 @@ class LoginWindow(ctk.CTk):
         self.lbl_status.configure(text="❌ 執行失敗，請重試", text_color="#ff4444")
         
     def open_main_gui(self):
+        os.environ['FJU_DEPARTMENT'] = self.department_var.get()
         self.destroy()
         app = GraduationGUI()
         app.mainloop()

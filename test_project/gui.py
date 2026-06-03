@@ -79,7 +79,7 @@ class GraduationGUI(ctk.CTk):
         except:
             self.departments = ["通用"]
             
-        default_dep = "資訊管理學系-學士班 (114學年度) - 完整補正版" if "資訊管理學系-學士班 (114學年度) - 完整補正版" in self.departments else self.departments[0]
+        default_dep = "資訊管理學系-學士班" if "資訊管理學系-學士班" in self.departments else self.departments[0]
         self.department_var = ctk.StringVar(value=default_dep)
 
         self.setup_ui()

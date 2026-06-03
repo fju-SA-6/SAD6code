@@ -19,16 +19,16 @@
 把分析圖一起匯出到pdf
 通識分類顯示與永續素養計算機制
 更新（重拉）學校資料的按鈕放在前端（get_school_info/fju_scraper.py + get_school_info/scrape_general_edu.py）
-
-## 未完成
 別系的畢業門檻
 根據不同系的學生推計不同的課程
-擋修
-英檢之類的門檻檢測
+
+## 未完成
 包裝成完整.app/.exe
 
 ## 不會做
 雙主修
+擋修
+英檢之類的門檻檢測
 
 
 ## 初始化與安裝套件 (pip install)

@@ -69,6 +69,19 @@ class GraduationGUI(ctk.CTk):
         # 匯出資料快取
         self.current_recommendations = []
 
+        # 讀取系所選項
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(script_dir, "department_reqs.json")
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                self.dep_reqs = json.load(f)
+                self.departments = ["通用"] + sorted(list(self.dep_reqs.keys()))
+        except:
+            self.departments = ["通用"]
+            
+        default_dep = "資訊管理學系-學士班 (114學年度) - 完整補正版" if "資訊管理學系-學士班 (114學年度) - 完整補正版" in self.departments else self.departments[0]
+        self.department_var = ctk.StringVar(value=default_dep)
+
         self.setup_ui()
         self.load_data_from_db()
         self.after(200, self.check_scroll_bottom)
@@ -100,7 +113,13 @@ class GraduationGUI(ctk.CTk):
         self.teacher_search_entry.pack(side="left", padx=10, pady=15, expand=True, fill="x")
         self.teacher_search_entry.bind("<KeyRelease>", self.on_filter_change)
 
-        self.sys_rule_var = ctk.StringVar(value="113(含)以前學士班")
+        self.combo_department = ctk.CTkOptionMenu(
+            self.filter_frame, variable=self.department_var, 
+            values=self.departments, font=self.f_body, height=40
+        )
+        self.combo_department.pack(side="left", padx=10, pady=15)
+
+        self.sys_rule_var = ctk.StringVar(value="114起學士班")
         self.sys_rule_menu = ctk.CTkOptionMenu(
             self.filter_frame, variable=self.sys_rule_var, 
             values=["113(含)以前學士班", "114起學士班", "二年制在職專班"], 
@@ -521,7 +540,7 @@ class GraduationGUI(ctk.CTk):
         obligatory_req = 80 - gen_req  # 將原必修目標扣除通識
         elective_req = 48
         
-        dep = os.environ.get('FJU_DEPARTMENT', '資訊管理學系-學士班 (114學年度) - 完整補正版')
+        dep = self.department_var.get()
         reqs = {}
         if dep != '通用':
             try:
@@ -777,10 +796,11 @@ class GraduationGUI(ctk.CTk):
             if missing_req_courses:
                 missing_ob_cands = []
                 missing_el_cands = []
+                missing_unknown = []
                 for mrc in missing_req_courses:
                     # try to find credits and category from candidates
-                    found_cr = 2 # default
-                    found_cat = "必修" # default
+                    found_cr = None
+                    found_cat = None
                     for c in candidates:
                         if c["name"] == mrc or mrc in c["name"]:
                             found_cr = c["credits"]
@@ -789,17 +809,16 @@ class GraduationGUI(ctk.CTk):
                             
                     if found_cat == "選修":
                         missing_el_cands.append({"name": mrc, "credits": found_cr, "category": "選修"})
-                    else:
+                    elif found_cat == "必修":
                         missing_ob_cands.append({"name": mrc, "credits": found_cr, "category": "必修"})
+                    else:
+                        missing_unknown.append({"name": mrc, "credits": 2, "category": "未知(本學期未開課或無法判定)"})
                         
-                if missing_ob_cands:
-                    used_ob = self.add_rec_section("【系所指定必修推薦】", missing_ob_cands, "必修", 999, "#dc3545", self.current_recommendations)
-                    if used_ob:
-                        ob_gap -= used_ob
-                if missing_el_cands:
-                    used_el = self.add_rec_section("【系所指定選修推薦】", missing_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
-                    if used_el:
-                        el_gap -= used_el
+                used_ob = self.add_rec_section("【系所指定必修推薦】", missing_ob_cands, "必修", 999, "#dc3545", self.current_recommendations)
+                if used_ob: ob_gap -= used_ob
+                used_el = self.add_rec_section("【系所指定選修推薦】", missing_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
+                if used_el: el_gap -= used_el
+                self.add_rec_section("【未開課 / 未知屬性 之指定課程】", missing_unknown, "未知(本學期未開課或無法判定)", 999, "gray", self.current_recommendations)
                 
                 # 過濾掉已經在系所指定必修/選修推薦過的課程，避免重複推薦
                 candidates = [c for c in candidates if c["name"] not in missing_req_courses and not any(mrc in c["name"] for mrc in missing_req_courses)]
@@ -868,6 +887,7 @@ class GraduationGUI(ctk.CTk):
         lbl_info = ctk.CTkLabel(self.rec_scroll, text=info_text, text_color="gray60", font=self.f_small)
         lbl_info.pack(anchor="w", padx=10, pady=(5, 20))
         self.rec_widgets.append(lbl_info)
+        return accumulated
 
     def export_to_pdf(self):
         filepath = filedialog.asksaveasfilename(
@@ -1076,20 +1096,6 @@ class LoginWindow(ctk.CTk):
         self.entry_password = ctk.CTkEntry(self, placeholder_text="請輸入密碼", show="*", font=self.f_body, width=280, height=45)
         self.entry_password.pack(pady=15)
         
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        json_path = os.path.join(script_dir, "department_reqs.json")
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                self.dep_reqs = json.load(f)
-                departments = ["通用"] + sorted(list(self.dep_reqs.keys()))
-        except:
-            departments = ["通用"]
-            
-        default_dep = "資訊管理學系-學士班 (114學年度) - 完整補正版" if "資訊管理學系-學士班 (114學年度) - 完整補正版" in departments else departments[0]
-        self.department_var = ctk.StringVar(value=default_dep)
-        self.combo_department = ctk.CTkOptionMenu(self, variable=self.department_var, values=departments, font=self.f_body, width=280, height=45)
-        self.combo_department.pack(pady=15)
-        
         self.btn_run = ctk.CTkButton(self, text="🚀 開始更新資料", font=("Helvetica", 18, "bold"), width=280, height=50, command=self.start_scraping)
         self.btn_run.pack(pady=30)
         
@@ -1109,7 +1115,6 @@ class LoginWindow(ctk.CTk):
             
         os.environ['FJU_ACCOUNT'] = account
         os.environ['FJU_PASSWORD'] = password
-        os.environ['FJU_DEPARTMENT'] = self.department_var.get()
         
         self.btn_run.configure(state="disabled")
         self.btn_skip.configure(state="disabled")
@@ -1152,7 +1157,6 @@ class LoginWindow(ctk.CTk):
         self.lbl_status.configure(text="❌ 執行失敗，請重試", text_color="#ff4444")
         
     def open_main_gui(self):
-        os.environ['FJU_DEPARTMENT'] = self.department_var.get()
         self.destroy()
         app = GraduationGUI()
         app.mainloop()

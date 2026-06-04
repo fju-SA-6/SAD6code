@@ -460,11 +460,10 @@ class GraduationGUI(ctk.CTk):
             
             grade_info = ""
             if hasattr(self, 'course_best_grades') and c['name'] in self.course_best_grades:
-                g = self.course_best_grades[c['name']]['grade']
                 if c['name'] in self.passed_course_names:
-                    grade_info = f"  |  🏆 {g}"
+                    grade_info = "  |  🏆"
                 else:
-                    grade_info = f"  |  ❌ {g}"
+                    grade_info = "  |  ❌"
             
             def make_cmd(c_id=c['id'], var=v):
                 self.toggle_course(c_id, var.get())

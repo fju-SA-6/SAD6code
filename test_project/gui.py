@@ -222,6 +222,9 @@ class GraduationGUI(ctk.CTk):
         self.lbl_status = ctk.CTkLabel(self.res_stats_frame, text="狀態：尚未查核", font=self.f_header, text_color="orange")
         self.lbl_status.pack(pady=(5, 5))
 
+        self.lbl_semesters = ctk.CTkLabel(self.res_stats_frame, text="🎓 預估最快畢業：尚未查核", font=self.f_header, text_color="#33b5e5")
+        self.lbl_semesters.pack(pady=(0, 10))
+
         # 下方加入匯出 PDF 按鈕 (優先使用底端空間以防被圖表擠出畫面)
         self.btn_export_pdf = ctk.CTkButton(
             self.res_stats_frame, text="📄 匯出查核結果成 PDF", font=self.f_btn, 
@@ -748,6 +751,10 @@ class GraduationGUI(ctk.CTk):
         return "人文與藝術"
 
     def generate_recommendations(self, ob_gap, el_gap, gen_gap, taken_domains=None, missing_req_courses=None, raw_text=""):
+        orig_ob_gap = ob_gap
+        orig_el_gap = el_gap
+        orig_gen_gap = gen_gap
+        
         if missing_req_courses is None: missing_req_courses = []
         
         # 正確清空舊推薦
@@ -802,13 +809,13 @@ class GraduationGUI(ctk.CTk):
                     domain_gaps[d] = max(0, 4 - taken_domains[d])
 
             # --- 取出並過濾候選清單 --- 
-            cursor.execute("SELECT course_name, credits, category FROM FJU_Courses_Scraped WHERE credits > 0 GROUP BY course_name")
+            cursor.execute("SELECT course_name, credits, category, GROUP_CONCAT(DISTINCT semester) FROM FJU_Courses_Scraped WHERE credits > 0 GROUP BY course_name")
             candidates = []
             general_candidates = []
             for row in cursor.fetchall():
-                n, cr, cat = row
+                n, cr, cat, sems = row
                 if n not in taken_names:
-                    cand = {"name": n, "credits": cr, "category": cat}
+                    cand = {"name": n, "credits": cr, "category": cat, "semesters": sems}
                     if cat == "通識":
                         cand["domain"] = self.categorize_domain(n)
                         general_candidates.append(cand)
@@ -845,14 +852,14 @@ class GraduationGUI(ctk.CTk):
             # 從 FJU_Courses_Scraped 取得該系所開的選修與必修課
             dept_el_cands = []
             dept_ob_cands = []
-            cursor.execute("SELECT course_name, credits, category FROM FJU_Courses_Scraped WHERE department LIKE %s AND category IN ('必修', '選修') GROUP BY course_name", (f"{dept_prefix}%",))
+            cursor.execute("SELECT course_name, credits, category, GROUP_CONCAT(DISTINCT semester) FROM FJU_Courses_Scraped WHERE department LIKE %s AND category IN ('必修', '選修') GROUP BY course_name", (f"{dept_prefix}%",))
             for row in cursor.fetchall():
-                n, cr, cat = row
+                n, cr, cat, sems = row
                 if n not in taken_names:
                     if cat == '選修':
-                        dept_el_cands.append({"name": n, "credits": cr, "category": "選修"})
+                        dept_el_cands.append({"name": n, "credits": cr, "category": "選修", "semesters": sems})
                     elif cat == '必修':
-                        dept_ob_cands.append({"name": n, "credits": cr, "category": "必修"})
+                        dept_ob_cands.append({"name": n, "credits": cr, "category": "必修", "semesters": sems})
 
             # 加入系所指定必修推薦 (來自 FJU_Courses_Scraped department 查詢)
             if dept_ob_cands:
@@ -872,15 +879,17 @@ class GraduationGUI(ctk.CTk):
                     if not any(c["name"] == mrc or mrc in c["name"] for c in dept_ob_cands + dept_el_cands):
                         found_cr = None
                         found_cat = None
+                        found_sems = ""
                         for c in candidates:
                             if c["name"] == mrc or mrc in c["name"]:
                                 found_cr = c["credits"]
                                 found_cat = c["category"]
+                                found_sems = c.get("semesters", "")
                                 break
                         if found_cr:
-                            missing_unknown.append({"name": mrc, "credits": found_cr, "category": found_cat})
+                            missing_unknown.append({"name": mrc, "credits": found_cr, "category": found_cat, "semesters": found_sems})
                         else:
-                            missing_unknown.append({"name": mrc, "credits": 2, "category": "未知(本學期未開課或無法判定)"})
+                            missing_unknown.append({"name": mrc, "credits": 2, "category": "未知(本學期未開課或無法判定)", "semesters": ""})
                 
                 if missing_unknown:
                     self.add_rec_section("【其他門檻指定課程 (非本系或未開課)】", missing_unknown, "未知/其他", 999, "gray", self.current_recommendations)
@@ -908,6 +917,53 @@ class GraduationGUI(ctk.CTk):
                             # 過濾只推薦該特定領域的課
                             spec_cands = [c for c in general_candidates if c["domain"] == d]
                             self.add_rec_section(f"【{d}通識】", spec_cands, "通識", req, "#9933cc", self.current_recommendations)
+                            
+            # 計算剩餘學期數
+            s1_must = 0
+            s2_must = 0
+            for c in dept_ob_cands:
+                if c.get("semesters") == "上學期":
+                    s1_must += c["credits"]
+                elif c.get("semesters") == "下學期":
+                    s2_must += c["credits"]
+                    
+            if missing_req_courses and 'missing_unknown' in locals():
+                for c in missing_unknown:
+                    if c.get("semesters") == "上學期":
+                        s1_must += c["credits"]
+                    elif c.get("semesters") == "下學期":
+                        s2_must += c["credits"]
+                        
+            total_gap = orig_ob_gap + orig_el_gap + orig_gen_gap
+            flex = max(0, total_gap - s1_must - s2_must)
+            
+            def sim_semesters(start_s1):
+                sem = 0
+                s1 = s1_must
+                s2 = s2_must
+                f = flex
+                is_s1 = start_s1
+                while s1 > 0 or s2 > 0 or f > 0:
+                    sem += 1
+                    cap = 25
+                    if is_s1:
+                        take = min(s1, cap)
+                        s1 -= take
+                        cap -= take
+                    else:
+                        take = min(s2, cap)
+                        s2 -= take
+                        cap -= take
+                    take_f = min(f, cap)
+                    f -= take_f
+                    is_s1 = not is_s1
+                return sem
+                
+            min_semesters = min(sim_semesters(True), sim_semesters(False))
+            if min_semesters > 0:
+                self.lbl_semesters.configure(text=f"🎓 預估最快畢業：還需 {min_semesters} 學期 (以每學期最高 25 學分估算)", text_color="#33b5e5")
+            else:
+                self.lbl_semesters.configure(text=f"🎓 預估最快畢業：已達標 (0 學期)", text_color="#00C851")
 
         except Exception as e:
             lbl = ctk.CTkLabel(self.rec_scroll, text=f"產生推薦發生錯誤: {e}", text_color="red")
@@ -934,7 +990,10 @@ class GraduationGUI(ctk.CTk):
                 card = ctk.CTkFrame(self.rec_scroll, corner_radius=8, fg_color="gray20")
                 card.pack(fill="x", padx=10, pady=4)
                 
-                lbl = ctk.CTkLabel(card, text=f"➤ {c['name']} ", font=self.f_body, text_color="gray90")
+                sems = c.get("semesters", "")
+                sem_text = f" [{sems}]" if sems else ""
+                
+                lbl = ctk.CTkLabel(card, text=f"➤ {c['name']}{sem_text} ", font=self.f_body, text_color="gray90")
                 lbl.pack(side="left", padx=10, pady=8)
                 
                 lbl_cr = ctk.CTkLabel(card, text=f"{c['credits']} 學分", font=self.f_small, text_color=color)
@@ -942,7 +1001,7 @@ class GraduationGUI(ctk.CTk):
                 
                 self.rec_widgets.append(card)
                 if rec_list is not None:
-                    rec_list.append({"name": c['name'], "credits": c['credits'], "category": category})
+                    rec_list.append({"name": c['name'], "credits": c['credits'], "category": category, "semesters": sems})
                 
                 accumulated += c["credits"]
                 if accumulated >= target_gap:
@@ -1083,7 +1142,9 @@ class GraduationGUI(ctk.CTk):
             else:
                 for rec in self.current_recommendations:
                     cat_tag = f"[{rec['category']}]"
-                    pdf.cell(190, 8, txt=f"   🔹 {cat_tag} {rec['name']} - {rec['credits']} 學分", ln=True)
+                    sems = rec.get("semesters", "")
+                    sem_tag = f" [{sems}]" if sems else ""
+                    pdf.cell(190, 8, txt=f"   🔹 {cat_tag} {rec['name']}{sem_tag} - {rec['credits']} 學分", ln=True)
             
             pdf.output(filepath)
             messagebox.showinfo("匯出成功", f"報告已成功儲存至：\n{filepath}")
@@ -1163,6 +1224,23 @@ class LoginWindow(ctk.CTk):
         
         self.entry_password = ctk.CTkEntry(self, placeholder_text="請輸入密碼", show="*", font=self.f_body, width=280, height=45)
         self.entry_password.pack(pady=15)
+        
+        # 嘗試讀取 account.txt 自動填寫帳號密碼
+        try:
+            account_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "account.txt")
+            if os.path.exists(account_file):
+                with open(account_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    import re
+                    acc_match = re.search(r"帳號[：:]\s*(.+)", content)
+                    pwd_match = re.search(r"密碼[：:]\s*(.+)", content)
+                    if acc_match:
+                        self.entry_account.insert(0, acc_match.group(1).strip())
+                    if pwd_match:
+                        self.entry_password.insert(0, pwd_match.group(1).strip())
+        except Exception as e:
+            print(f"讀取 account.txt 失敗: {e}")
+
         
         self.btn_run = ctk.CTkButton(self, text="🚀 開始更新資料", font=("Helvetica", 18, "bold"), width=280, height=50, command=self.start_scraping)
         self.btn_run.pack(pady=30)

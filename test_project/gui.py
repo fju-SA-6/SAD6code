@@ -273,6 +273,23 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
+            # 建立通識分類字典 (從 FJU_Courses_Scraped 的 general_field 取得)
+            cursor.execute("SELECT course_name, general_field FROM FJU_Courses_Scraped WHERE category='通識' AND general_field IS NOT NULL")
+            self.gen_ed_map = {}
+            for row in cursor.fetchall():
+                n, gf = row
+                if gf:
+                    import re
+                    match = re.search(r"領域：\s*(\S+)", gf)
+                    if match:
+                        raw_domain = match.group(1)
+                        if raw_domain == "人文藝術":
+                            self.gen_ed_map[n] = "人文與藝術"
+                        elif raw_domain == "自然科技":
+                            self.gen_ed_map[n] = "自然與科技"
+                        else:
+                            self.gen_ed_map[n] = raw_domain
+
             # 1. 取得已過關之個人成績，並找出重複修課時最好的成績，同時記錄該科學分數
             self.course_best_grades = {}
             cursor.execute("SELECT course_name, grade, credits FROM FJU_Personal_Grades")
@@ -314,7 +331,7 @@ class GraduationGUI(ctk.CTk):
                        GROUP_CONCAT(DISTINCT semester) as semesters, 
                        GROUP_CONCAT(DISTINCT day_of_week) as days, 
                        GROUP_CONCAT(DISTINCT teacher SEPARATOR ', ') as teachers 
-                FROM FJU_Courses 
+                FROM FJU_Courses_Scraped 
                 GROUP BY course_name, credits
                 ORDER BY category, course_name, credits
             """
@@ -785,7 +802,7 @@ class GraduationGUI(ctk.CTk):
                     domain_gaps[d] = max(0, 4 - taken_domains[d])
 
             # --- 取出並過濾候選清單 --- 
-            cursor.execute("SELECT course_name, credits, category FROM FJU_Courses WHERE credits > 0 GROUP BY course_name")
+            cursor.execute("SELECT course_name, credits, category FROM FJU_Courses_Scraped WHERE credits > 0 GROUP BY course_name")
             candidates = []
             general_candidates = []
             for row in cursor.fetchall():
@@ -805,36 +822,75 @@ class GraduationGUI(ctk.CTk):
             candidates.sort(key=sort_key)
             general_candidates.sort(key=sort_key)
 
-            # 開始配置缺漏
+            # 準備系所前綴
+            dept_full = self.department_var.get()
+            dept_base = dept_full.split("-")[0]
+            dept_mapping = {
+                "資訊管理學系": "資管", "中國文學系": "中文", "英國語文學系": "英文",
+                "日本語文學系": "日文", "企業管理學系": "企管", "資訊工程學系": "資工",
+                "財務金融學系": "財金", "統計資訊學系": "統資", "歷史學系": "歷史",
+                "哲學系": "哲學", "物理學系": "物理", "化學系": "化學",
+                "數學系": "數學", "生命科學系": "生科", "心理學系": "心理",
+                "護理學系": "護理", "公共衛生學系": "公衛", "臨床心理學系": "臨心",
+                "職能治療學系": "職治", "呼吸治療學系": "呼吸", "音樂學系": "音樂",
+                "應用美術學系": "應美", "景觀設計學系": "景觀", "食品科學系": "食科",
+                "營養科學系": "營養", "電機工程學系": "電機", "宗教學系": "宗教",
+                "醫學系": "醫學", "法國語文學系": "法文", "西班牙語文學系": "西文",
+                "義大利語文學系": "義文", "德國語文學系": "德語", "社會學系": "社會",
+                "社會工作學系": "社工", "經濟學系": "經濟", "法律學系": "法律",
+                "財經法律學系": "財法", "會計學系": "會計"
+            }
+            dept_prefix = dept_mapping.get(dept_base, dept_base[:2])
+            
+            # 從 FJU_Courses_Scraped 取得該系所開的選修與必修課
+            dept_el_cands = []
+            dept_ob_cands = []
+            cursor.execute("SELECT course_name, credits, category FROM FJU_Courses_Scraped WHERE department LIKE %s AND category IN ('必修', '選修') GROUP BY course_name", (f"{dept_prefix}%",))
+            for row in cursor.fetchall():
+                n, cr, cat = row
+                if n not in taken_names:
+                    if cat == '選修':
+                        dept_el_cands.append({"name": n, "credits": cr, "category": "選修"})
+                    elif cat == '必修':
+                        dept_ob_cands.append({"name": n, "credits": cr, "category": "必修"})
+
+            # 加入系所指定必修推薦 (來自 FJU_Courses_Scraped department 查詢)
+            if dept_ob_cands:
+                used_ob = self.add_rec_section("【系所指定必修推薦】", dept_ob_cands, "必修", 999, "#dc3545", self.current_recommendations)
+                if used_ob: ob_gap -= used_ob
+
+            # 加入系所指定選修推薦 (來自 FJU_Courses_Scraped department 查詢)
+            if dept_el_cands:
+                used_el = self.add_rec_section("【系所指定選修推薦】", dept_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
+                if used_el: el_gap -= used_el
+
+            # 開始配置缺漏 (門檻指定)
             if missing_req_courses:
-                missing_ob_cands = []
-                missing_el_cands = []
                 missing_unknown = []
                 for mrc in missing_req_courses:
-                    # try to find credits and category from candidates
-                    found_cr = None
-                    found_cat = None
-                    for c in candidates:
-                        if c["name"] == mrc or mrc in c["name"]:
-                            found_cr = c["credits"]
-                            found_cat = c["category"]
-                            break
-                            
-                    if found_cat == "選修":
-                        missing_el_cands.append({"name": mrc, "credits": found_cr, "category": "選修"})
-                    elif found_cat == "必修":
-                        missing_ob_cands.append({"name": mrc, "credits": found_cr, "category": "必修"})
-                    else:
-                        missing_unknown.append({"name": mrc, "credits": 2, "category": "未知(本學期未開課或無法判定)"})
-                        
-                used_ob = self.add_rec_section("【系所指定必修推薦】", missing_ob_cands, "必修", 999, "#dc3545", self.current_recommendations)
-                if used_ob: ob_gap -= used_ob
-                used_el = self.add_rec_section("【系所指定選修推薦】", missing_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
-                if used_el: el_gap -= used_el
-                self.add_rec_section("【未開課 / 未知屬性 之指定課程】", missing_unknown, "未知(本學期未開課或無法判定)", 999, "gray", self.current_recommendations)
+                    # 如果這門門檻指定的課不在 dept_ob_cands 和 dept_el_cands 裡，就找看看全校有沒有開
+                    if not any(c["name"] == mrc or mrc in c["name"] for c in dept_ob_cands + dept_el_cands):
+                        found_cr = None
+                        found_cat = None
+                        for c in candidates:
+                            if c["name"] == mrc or mrc in c["name"]:
+                                found_cr = c["credits"]
+                                found_cat = c["category"]
+                                break
+                        if found_cr:
+                            missing_unknown.append({"name": mrc, "credits": found_cr, "category": found_cat})
+                        else:
+                            missing_unknown.append({"name": mrc, "credits": 2, "category": "未知(本學期未開課或無法判定)"})
                 
-                # 過濾掉已經在系所指定必修/選修推薦過的課程，避免重複推薦
+                if missing_unknown:
+                    self.add_rec_section("【其他門檻指定課程 (非本系或未開課)】", missing_unknown, "未知/其他", 999, "gray", self.current_recommendations)
+                
+                # 過濾掉已經在其他門檻推薦過的課程，避免重複推薦
                 candidates = [c for c in candidates if c["name"] not in missing_req_courses and not any(mrc in c["name"] for mrc in missing_req_courses)]
+
+            # 從 candidates 中過濾掉已經出現在系所指定推薦的課程
+            dept_course_names = {c["name"] for c in dept_ob_cands + dept_el_cands}
+            candidates = [c for c in candidates if c["name"] not in dept_course_names]
 
             if ob_gap > 0:
                 self.add_rec_section("【必修學分推薦】", candidates, "必修", ob_gap, "#ff8800", self.current_recommendations)
@@ -1058,10 +1114,9 @@ class GraduationGUI(ctk.CTk):
         def run_scraper():
             try:
                 # 使用 sys.executable 確保使用同一個虛擬環境中的 python
-                # 執行主課程爬蟲
-                subprocess.run([sys.executable, "get_school_info/fju_scraper.py"], check=True)
-                # 執行通識分類爬蟲
-                subprocess.run([sys.executable, "get_school_info/scrape_general_edu.py"], check=True)
+                # 執行主課程爬蟲 (先下學期重建資料表，再上學期補入)
+                subprocess.run([sys.executable, "test_project/fju_scr_2.py"], check=True)
+                subprocess.run([sys.executable, "test_project/fju_scr_1.py"], check=True)
                 
                 # 執行完成後，透過 after 回到主執行緒處理 UI
                 self.after(0, self.on_update_success)

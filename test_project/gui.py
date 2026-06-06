@@ -12,20 +12,7 @@ import threading
 import tempfile
 import json
 
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 from fpdf import FPDF
-
-# 設定 matplotlib 全域中文字型
-os_name = platform.system()
-if os_name == "Windows":
-    plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei', 'Arial Unicode MS']
-elif os_name == "Darwin":
-    plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'PingFang HK', 'Heiti TC']
-else:
-    plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei']
-plt.rcParams['axes.unicode_minus'] = False
 
 class GraduationGUI(ctk.CTk):
     def __init__(self):
@@ -233,15 +220,17 @@ class GraduationGUI(ctk.CTk):
         )
         self.btn_export_pdf.pack(side="bottom", fill="x", padx=30, pady=(10, 25))
 
-        # 中間圓環圖區域 (排在按鈕前面，利用 expand 搶佔剩餘空間)
-        self.chart_frame = ctk.CTkFrame(self.res_stats_frame, fg_color="transparent")
-        self.chart_frame.pack(side="bottom", fill="both", expand=True, padx=20, pady=5)
+        # 中間顯示額外門檻區域
+        self.threshold_frame = ctk.CTkFrame(self.res_stats_frame, fg_color="gray12", corner_radius=10)
+        self.threshold_frame.pack(side="bottom", fill="both", expand=True, padx=20, pady=5)
         
-        self.fig = Figure(figsize=(5, 4), facecolor='#2B2B2B', tight_layout=True)
-        self.ax = self.fig.add_subplot(111)
-        self.ax.axis('off')
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.lbl_threshold_title = ctk.CTkLabel(self.threshold_frame, text="📌 額外畢業門檻", font=self.f_header, text_color="#33b5e5")
+        self.lbl_threshold_title.pack(anchor="w", padx=15, pady=(10, 0))
+
+        self.txt_threshold = ctk.CTkTextbox(self.threshold_frame, font=self.f_body, fg_color="transparent", wrap="word")
+        self.txt_threshold.pack(fill="both", expand=True, padx=10, pady=10)
+        self.txt_threshold.insert("0.0", "尚未查核")
+        self.txt_threshold.configure(state="disabled")
 
         # 右：推薦清單卡片
         self.res_rec_frame = ctk.CTkFrame(self.res_split, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
@@ -664,8 +653,8 @@ class GraduationGUI(ctk.CTk):
         raw_text = reqs.get("raw_text", "")
         self.generate_recommendations(ob_gap, el_gap, gen_gap, taken_domains, missing_req_courses, raw_text)
         
-        # 更新分析圖表
-        self.update_chart(sum_obligatory, ob_gap, sum_elective, el_gap, sum_general, gen_gap)
+        # 更新額外門檻顯示
+        self.update_additional_threshold()
         
         # 啟用 PDF 匯出按鈕
         self.btn_export_pdf.configure(state="normal")
@@ -673,56 +662,66 @@ class GraduationGUI(ctk.CTk):
         # 自動跳轉 Tab (需對應正確含 Emoji 的標籤名稱)
         self.tabview.set("📊 畢業查核結果")
 
-    def update_chart(self, ob_done, ob_gap, el_done, el_gap, gen_done, gen_gap):
-        self.ax.clear()
+    def update_additional_threshold(self):
+        dep = self.department_var.get()
+        # 取得不含 "-" 或 "(" 的系所核心名稱
+        dep_base = dep.split('-')[0].split('(')[0].split('（')[0].strip()
+        is_dep_ext = "進修" in dep
         
-        labels = []
-        sizes = []
-        colors = []
+        threshold_text = "無額外門檻設定。"
         
-        if ob_done > 0:
-            labels.append(f'已修必修\n({ob_done})')
-            sizes.append(ob_done)
-            colors.append('#ff4444')
-        if ob_gap > 0:
-            labels.append(f'缺必修\n({ob_gap})')
-            sizes.append(ob_gap)
-            colors.append('#dc3545')
-        if el_done > 0:
-            labels.append(f'已修選修\n({el_done})')
-            sizes.append(el_done)
-            colors.append('#00C851')
-        if el_gap > 0:
-            labels.append(f'缺選修\n({el_gap})')
-            sizes.append(el_gap)
-            colors.append('#28a745')
-        if gen_done > 0:
-            labels.append(f'已修通識\n({gen_done})')
-            sizes.append(gen_done)
-            colors.append('#9933cc')
-        if gen_gap > 0:
-            labels.append(f'缺通識\n({gen_gap})')
-            sizes.append(gen_gap)
-            colors.append('#aa66cc')
-            
-        if sum(sizes) == 0:
-            self.ax.text(0.5, 0.5, "無數據", ha="center", va="center", color="white")
-            self.ax.axis('off')
-            self.canvas.draw()
-            return
-
-        # 這裡設定 textprops, 讓 matplotlib 會使用我們前面定義的中文字型 (受 matplotlib rcParams 控制)
-        wedges, texts, autotexts = self.ax.pie(
-            sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
-            startangle=140, textprops={'color': "white", 'fontsize': 11, 'fontfamily': plt.rcParams['font.sans-serif'][0]}
-        )
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        md_path = os.path.join(script_dir, "額外門檻.md")
+        if os.path.exists(md_path):
+            try:
+                import re
+                with open(md_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    
+                rows = re.findall(r'<tr[^>]*>.*?</tr>', content, re.IGNORECASE | re.DOTALL)
+                for row in rows:
+                    tds = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
+                    if not tds:
+                        continue
+                        
+                    def clean_html(raw_html):
+                        return re.sub(r'<.*?>', '', raw_html).strip()
+                        
+                    first_td = clean_html(tds[0])
+                    is_td_ext = "進修" in first_td
+                    
+                    # 模糊比對：系所核心名稱有交集，且進修部屬性一致
+                    if (dep_base in first_td or first_td in dep_base) and (is_dep_ext == is_td_ext):
+                        cols = [clean_html(td) for td in tds]
+                        
+                        out = []
+                        if len(cols) > 0:
+                            out.append(f"🎯 系所：{cols[0]}")
+                        
+                        has_threshold = False
+                        if len(cols) > 4 and cols[4] and cols[4] not in ['-', '']:
+                            out.append(f"🗣️ 外語門檻：{cols[4]}")
+                            has_threshold = True
+                        if len(cols) > 5 and cols[5] and cols[5] not in ['-', '']:
+                            out.append(f"📌 其他門檻：{cols[5]}")
+                            has_threshold = True
+                        if len(cols) > 6 and cols[6] and cols[6] not in ['-', '']:
+                            out.append(f"📋 附加規定：{cols[6]}")
+                            has_threshold = True
+                            
+                        if not has_threshold:
+                            out.append("✅ 目前系統資料顯示無特殊外語或額外畢業門檻。")
+                            
+                        threshold_text = '\n'.join(out)
+                        break
+                        
+            except Exception as e:
+                threshold_text = f"讀取額外門檻檔案失敗: {e}"
         
-        # 中間挖空變圓環圖
-        centre_circle = plt.Circle((0,0), 0.65, fc='#2B2B2B')
-        self.ax.add_artist(centre_circle)
-        
-        self.ax.axis('equal')  
-        self.canvas.draw()
+        self.txt_threshold.configure(state="normal")
+        self.txt_threshold.delete("0.0", "end")
+        self.txt_threshold.insert("0.0", threshold_text)
+        self.txt_threshold.configure(state="disabled")
 
     def categorize_domain(self, name):
         sys_rule = self.sys_rule_var.get()
@@ -1028,35 +1027,7 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
-            # --- 處理圖表暫存 ---
-            temp_chart_path = os.path.join(tempfile.gettempdir(), "fju_chart_export.png")
-            
-            # 暫時將背景轉為白色以適合列印
-            orig_facecolor = self.fig.get_facecolor()
-            self.fig.patch.set_facecolor('white')
-            
-            # 將中間的圓環背景與外圍文字轉成白底黑字
-            for artist in self.ax.patches:
-                if isinstance(artist, plt.Circle):
-                    artist.set_facecolor('white')
-                    
-            orig_texts_color = []
-            for t in self.ax.texts:
-                orig_texts_color.append(t.get_color())
-                t.set_color('black')
-                
-            # 儲存圖片
-            self.fig.savefig(temp_chart_path, format="png", bbox_inches="tight", dpi=150)
-            
-            # 復原深色主題
-            self.fig.patch.set_facecolor(orig_facecolor)
-            for artist in self.ax.patches:
-                if isinstance(artist, plt.Circle):
-                    artist.set_facecolor('#2B2B2B')
-            for i, t in enumerate(self.ax.texts):
-                t.set_color(orig_texts_color[i])
-            self.canvas.draw()
-            # ---------------------
+
 
             pdf = FPDF()
             pdf.add_page()
@@ -1113,17 +1084,17 @@ class GraduationGUI(ctk.CTk):
             for line in status_lines:
                 pdf.cell(190, 8, txt=line, ln=True)
                 
-            # --- 插入圖表 ---
+            # --- 插入額外門檻 ---
             pdf.ln(5)
-            if os.path.exists(temp_chart_path):
-                current_y = pdf.get_y()
-                # 置中擺放圖表
-                pdf.image(temp_chart_path, x=55, y=current_y, w=100)
-                pdf.ln(80) # 預留圖表高度空間
-                try:
-                    os.remove(temp_chart_path)
-                except:
-                    pass
+            pdf.set_font('tc_font', '', 14) if has_tc_font else None
+            pdf.set_text_color(0, 102, 204)  # 藍色標題
+            pdf.cell(190, 10, txt="📌 【 額外畢業門檻 】", ln=True)
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font('tc_font', '', 10) if has_tc_font else None
+            
+            threshold_text = self.txt_threshold.get("0.0", "end").strip()
+            for line in threshold_text.split('\n'):
+                pdf.multi_cell(190, 6, txt=line)
                 
             pdf.ln(5)
             pdf.set_line_width(0.2)

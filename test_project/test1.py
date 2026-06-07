@@ -11,6 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.keys import Keys
+import undetected_chromedriver as uc
 import os
 
 # ==========================================
@@ -52,11 +53,13 @@ def scrape_personal_grades():
     conn, cursor = setup_database()
     if not conn: return
 
-    chrome_options = Options()
+    chrome_options = uc.ChromeOptions()
     chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.page_load_strategy = 'eager' # 提早返回，不等待圖片和所有資源載入
     
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver = uc.Chrome(options=chrome_options, version_main=148)
     driver.maximize_window()
     driver.set_page_load_timeout(10) # 加上載入超時限制，最多等 10 秒避免卡死
 

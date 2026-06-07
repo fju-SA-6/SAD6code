@@ -623,6 +623,24 @@ class GraduationGUI(ctk.CTk):
         el_gap = max(0, elective_req - sum_elective)
         gen_gap = max(0, gen_req - sum_general)
         
+        # 檢查通識細項是否滿足
+        domain_gaps = {}
+        if "114" in sys_rule:
+            for d in ["人文與藝術", "自然與科技", "社會科學", "永續素養"]:
+                domain_gaps[d] = max(0, 2 - taken_domains.get(d, 0))
+            total_specific_req = sum(domain_gaps.values())
+            free_gap = max(0, gen_gap - total_specific_req)
+            if free_gap > 0:
+                domain_gaps["任一通識"] = free_gap
+        elif "二年制" in sys_rule:
+            for d in ["人文與藝術", "自然與科技", "社會科學"]:
+                domain_gaps[d] = max(0, 2 - taken_domains.get(d, 0))
+        else: # 113含以前
+            for d in ["人文與藝術", "自然與科技", "社會科學"]:
+                domain_gaps[d] = max(0, 4 - taken_domains.get(d, 0))
+                
+        gen_details_satisfied = (sum(domain_gaps.values()) == 0)
+        
         # 判斷是否缺少各系指定的必修課程
         req_courses = reqs.get("required_courses", [])
         taken_course_names = {c['name'] for c in self.all_courses if c['id'] in self.checked_course_ids}
@@ -637,17 +655,45 @@ class GraduationGUI(ctk.CTk):
             if not found:
                 missing_req_courses.append(rc)
                 
-        missing_course_text = ""
-        if missing_req_courses:
-            missing_course_text = f"\n⚠️ 有 {len(missing_req_courses)} 門系所指定必修尚未完成 (詳見右側推薦清單)"
-        elif req_courses:
-            missing_course_text = "\n✅ 系所指定必修已全部完成"
+        # 從資料庫抓取系統官方判定未過的必修/校定課
+        sys_missing_official = []
+        try:
+            conn, cursor = get_db_connection()
+            if cursor:
+                cursor.execute("SELECT requirement_name FROM FJU_Graduation_Check WHERE category IN ('院系必修', '全人/校定') AND grade IN ('尚未修課', '未評定成績')")
+                for row in cursor.fetchall():
+                    req_name = row[0]
+                    if "通識領域" in req_name:
+                        continue
+                    
+                    # 檢查使用者是否已經在 GUI 中勾選了這門課 (模擬已修畢)
+                    found_in_checked = False
+                    for tc in taken_course_names:
+                        if req_name == tc or req_name in tc or tc in req_name:
+                            found_in_checked = True
+                            break
+                    
+                    if not found_in_checked:
+                        sys_missing_official.append(req_name)
+        except:
+            pass
 
-        if total_gap == 0 and ob_gap == 0 and el_gap == 0 and gen_gap == 0 and pe_count >= 4 and not missing_req_courses:
+        sys_missing_count = len(sys_missing_official)
+
+        missing_course_text = ""
+        if sys_missing_count > 0:
+            missing_course_text = f"\n⚠️ 系統檢核有 {sys_missing_count} 門必修/校定尚未完成 (詳見推薦清單)"
+        else:
+            missing_course_text = "\n✅ 系統檢核必修與校定已全部完成"
+
+        if total_gap == 0 and ob_gap == 0 and el_gap == 0 and gen_gap == 0 and pe_count >= 4 and sys_missing_count == 0 and gen_details_satisfied:
             self.lbl_status.configure(text=f"🎉 恭喜！您已滿足所有學分要求！{missing_course_text}", text_color="#00C851")
         else:
             pe_gap_text = f" / 體育缺 {4 - pe_count} 門" if pe_count < 4 else ""
-            self.lbl_status.configure(text=f"⚠️ 缺口: 必修缺 {ob_gap}  /  選修缺 {el_gap}  /  通識缺 {gen_gap}{pe_gap_text}{missing_course_text}", text_color="#ff4444")
+            gen_detail_gap_text = ""
+            if gen_gap == 0 and not gen_details_satisfied:
+                gen_detail_gap_text = "(細項未滿)"
+            self.lbl_status.configure(text=f"⚠️ 缺口: 必修缺 {ob_gap}  /  選修缺 {el_gap}  /  通識缺 {gen_gap}{gen_detail_gap_text}{pe_gap_text}{missing_course_text}", text_color="#ff4444")
 
         # 產生推薦修課清單
         raw_text = reqs.get("raw_text", "")
@@ -860,6 +906,36 @@ class GraduationGUI(ctk.CTk):
                     elif cat == '必修':
                         dept_ob_cands.append({"name": n, "credits": cr, "category": "必修", "semesters": sems})
 
+            # 從 FJU_Graduation_Check 抓取系統判定未過的必修與校定課
+            sys_ob_cands = []
+            try:
+                cursor.execute("SELECT requirement_name FROM FJU_Graduation_Check WHERE category IN ('院系必修', '全人/校定') AND grade IN ('尚未修課', '未評定成績')")
+                sys_missing_names = [row[0] for row in cursor.fetchall()]
+                
+                for missing_name in sys_missing_names:
+                    # 排除不具體的通識大類名稱
+                    if "通識領域" in missing_name:
+                        continue
+                    
+                    # 檢查是否已在畫面上打勾 (模擬已修畢)
+                    if any(missing_name == tc or missing_name in tc or tc in missing_name for tc in taken_names):
+                        continue
+                        
+                    found_cr = 2 # 預設2學分
+                    found_sems = "依開課為主"
+                    for c in candidates + general_candidates:
+                        if c["name"] == missing_name or missing_name in c["name"]:
+                            found_cr = c["credits"]
+                            found_sems = c.get("semesters", "")
+                            break
+                    sys_ob_cands.append({"name": missing_name, "credits": found_cr, "category": "必修", "semesters": found_sems})
+                
+                # 直接替換掉原本靠系所代碼盲猜的必修清單，改用官方系統認證的缺漏清單
+                if sys_ob_cands:
+                    dept_ob_cands = sys_ob_cands
+            except:
+                pass # 如果表不存在或結構改變，忽略錯誤
+
             # 加入系所指定必修推薦 (來自 FJU_Courses_Scraped department 查詢)
             if dept_ob_cands:
                 used_ob = self.add_rec_section("【系所指定必修推薦】", dept_ob_cands, "必修", 999, "#dc3545", self.current_recommendations)
@@ -1027,7 +1103,12 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
-
+            def clean_text(text):
+                # 移除 PDF 無法顯示的常見 Emoji (包含 \ufe0f 變體選擇器)
+                emojis = ['🎓', '📊', '🎯', '📚', '🧩', '🌍', '🏃', '⚠', '\ufe0f', '📌', '✅', '❌', '💡', '🔹', '🗣', '📋']
+                for e in emojis:
+                    text = text.replace(e, '')
+                return text.strip()
 
             pdf = FPDF()
             pdf.add_page()
@@ -1047,7 +1128,7 @@ class GraduationGUI(ctk.CTk):
             else:
                 pdf.set_font("Arial", size=18)
                 
-            pdf.cell(190, 15, txt="🎓 輔大畢業學分查核報告", ln=True, align="C")
+            pdf.cell(190, 15, txt=clean_text("🎓 輔大畢業學分查核報告"), ln=True, align="C")
             
             pdf.set_font('tc_font', '', 11) if has_tc_font else pdf.set_font("Arial", size=11)
             pdf.cell(190, 8, txt=f"產生時間: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="R")
@@ -1060,41 +1141,52 @@ class GraduationGUI(ctk.CTk):
             pdf.ln(15)
             pdf.set_font('tc_font', '', 14) if has_tc_font else None
             pdf.set_text_color(0, 102, 204)  # 藍色標題
-            pdf.cell(190, 10, txt="📊 【 當前學分狀態 】", ln=True)
+            pdf.cell(190, 10, txt=clean_text("📊 【 當前學分狀態 】"), ln=True)
             
             pdf.set_text_color(0, 0, 0) # 恢復黑色
             pdf.set_font('tc_font', '', 12) if has_tc_font else None
-            pdf.cell(190, 8, txt=self.lbl_total_prog.cget("text"), ln=True)
-            pdf.cell(190, 8, txt=self.lbl_req_prog.cget("text"), ln=True)
-            pdf.cell(190, 8, txt=self.lbl_elec_prog.cget("text"), ln=True)
-            pdf.cell(190, 8, txt=self.lbl_gen_prog.cget("text"), ln=True)
+            pdf.cell(190, 8, txt=clean_text(self.lbl_total_prog.cget("text")), ln=True)
+            pdf.cell(190, 8, txt=clean_text(self.lbl_req_prog.cget("text")), ln=True)
+            pdf.cell(190, 8, txt=clean_text(self.lbl_elec_prog.cget("text")), ln=True)
+            pdf.cell(190, 8, txt=clean_text(self.lbl_gen_prog.cget("text")), ln=True)
             
             pdf.set_font('tc_font', '', 10) if has_tc_font else None
             pdf.set_text_color(100, 100, 100)
             for d_line in self.lbl_gen_details.cget("text").split('\n'):
-                pdf.cell(190, 6, txt="      " + d_line, ln=True)
+                pdf.cell(190, 6, txt=clean_text("      " + d_line), ln=True)
             
             pdf.set_font('tc_font', '', 12) if has_tc_font else None
             pdf.set_text_color(0, 0, 0)
-            pdf.cell(190, 8, txt=self.lbl_pe_prog.cget("text"), ln=True)
+            pdf.cell(190, 8, txt=clean_text(self.lbl_pe_prog.cget("text")), ln=True)
             
             pdf.ln(5)
             # 處理帶有多行的狀態字串
             status_lines = self.lbl_status.cget("text").split('\n')
             for line in status_lines:
-                pdf.cell(190, 8, txt=line, ln=True)
+                pdf.cell(190, 8, clean_text(line), ln=True)
+                
+            # --- 預估最快畢業 ---
+            pdf.ln(2)
+            pdf.set_font('tc_font', '', 12) if has_tc_font else None
+            pdf.set_text_color(0, 153, 204)
+            pdf.cell(190, 8, clean_text(self.lbl_semesters.cget("text")), ln=True)
+            pdf.set_text_color(0, 0, 0)
                 
             # --- 插入額外門檻 ---
             pdf.ln(5)
             pdf.set_font('tc_font', '', 14) if has_tc_font else None
             pdf.set_text_color(0, 102, 204)  # 藍色標題
-            pdf.cell(190, 10, txt="📌 【 額外畢業門檻 】", ln=True)
+            pdf.cell(190, 10, txt=clean_text("【 額外畢業門檻 】"), ln=True)
             pdf.set_text_color(0, 0, 0)
             pdf.set_font('tc_font', '', 10) if has_tc_font else None
             
             threshold_text = self.txt_threshold.get("0.0", "end").strip()
-            for line in threshold_text.split('\n'):
-                pdf.multi_cell(190, 6, txt=line)
+            # 移除在 PDF 中無法顯示的 Emoji
+            threshold_text = clean_text(threshold_text)
+            
+            # 直接將包含換行符號的完整字串傳給 multi_cell 處理，避免 X 座標異常偏移
+            # 使用位置參數以避免 fpdf/fpdf2 不同版本的 txt/text 警告
+            pdf.multi_cell(190, 6, threshold_text, 0, 'L')
                 
             pdf.ln(5)
             pdf.set_line_width(0.2)
@@ -1104,18 +1196,18 @@ class GraduationGUI(ctk.CTk):
             pdf.ln(10)
             pdf.set_font('tc_font', '', 14) if has_tc_font else None
             pdf.set_text_color(0, 153, 51)  # 綠色標題
-            pdf.cell(190, 10, txt="💡 【 系統推薦修課清單 】", ln=True)
+            pdf.cell(190, 10, txt=clean_text("【 系統推薦修課清單 】"), ln=True)
             pdf.set_text_color(0, 0, 0)
             pdf.set_font('tc_font', '', 12) if has_tc_font else None
             
             if not self.current_recommendations:
-                pdf.cell(190, 8, txt="✅ 學分已滿或無推薦課程。", ln=True)
+                pdf.cell(190, 8, txt="學分已滿或無推薦課程。", ln=True)
             else:
                 for rec in self.current_recommendations:
                     cat_tag = f"[{rec['category']}]"
                     sems = rec.get("semesters", "")
                     sem_tag = f" [{sems}]" if sems else ""
-                    pdf.cell(190, 8, txt=f"   🔹 {cat_tag} {rec['name']}{sem_tag} - {rec['credits']} 學分", ln=True)
+                    pdf.cell(190, 8, txt=clean_text(f"   - {cat_tag} {rec['name']}{sem_tag} - {rec['credits']} 學分"), ln=True)
             
             pdf.output(filepath)
             messagebox.showinfo("匯出成功", f"報告已成功儲存至：\n{filepath}")

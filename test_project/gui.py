@@ -88,8 +88,8 @@ class GraduationGUI(ctk.CTk):
 
 
     def setup_course_tab(self):
-        # 上方篩選列 (卡片風格)
-        self.filter_frame = ctk.CTkFrame(self.tab_courses, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
+        # 上方篩選列 (卡片風格)，改為水平滾動避免視窗縮小被隱藏
+        self.filter_frame = ctk.CTkScrollableFrame(self.tab_courses, orientation="horizontal", height=70, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
         self.filter_frame.pack(fill="x", padx=10, pady=10)
 
         self.search_entry = ctk.CTkEntry(self.filter_frame, placeholder_text="🔍 搜尋課程...", font=self.f_body, height=40, border_width=1)
@@ -164,8 +164,8 @@ class GraduationGUI(ctk.CTk):
         self.res_split = ctk.CTkFrame(self.tab_results, fg_color="transparent")
         self.res_split.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # 左：統計資訊卡片
-        self.res_stats_frame = ctk.CTkFrame(self.res_split, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
+        # 左：統計資訊卡片 (改為可滾動框架，避免視窗過矮時隱藏按鈕)
+        self.res_stats_frame = ctk.CTkScrollableFrame(self.res_split, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
         self.res_stats_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
         
         self.lbl_res_title = ctk.CTkLabel(self.res_stats_frame, text="📈 學分統計狀態", font=self.f_title)
@@ -212,17 +212,9 @@ class GraduationGUI(ctk.CTk):
         self.lbl_semesters = ctk.CTkLabel(self.res_stats_frame, text="🎓 預估最快畢業：尚未查核", font=self.f_header, text_color="#33b5e5")
         self.lbl_semesters.pack(pady=(0, 10))
 
-        # 下方加入匯出 PDF 按鈕 (優先使用底端空間以防被圖表擠出畫面)
-        self.btn_export_pdf = ctk.CTkButton(
-            self.res_stats_frame, text="📄 匯出查核結果成 PDF", font=self.f_btn, 
-            height=50, fg_color="#ff8800", hover_color="#cc6600",
-            command=self.export_to_pdf, state="disabled"
-        )
-        self.btn_export_pdf.pack(side="bottom", fill="x", padx=30, pady=(10, 25))
-
-        # 中間顯示額外門檻區域
+        # 中間顯示額外門檻區域 (依照順序往下排列，避免被擠出畫面)
         self.threshold_frame = ctk.CTkFrame(self.res_stats_frame, fg_color="gray12", corner_radius=10)
-        self.threshold_frame.pack(side="bottom", fill="both", expand=True, padx=20, pady=5)
+        self.threshold_frame.pack(fill="both", expand=True, padx=20, pady=5)
         
         self.lbl_threshold_title = ctk.CTkLabel(self.threshold_frame, text="📌 額外畢業門檻", font=self.f_header, text_color="#33b5e5")
         self.lbl_threshold_title.pack(anchor="w", padx=15, pady=(10, 0))
@@ -231,6 +223,14 @@ class GraduationGUI(ctk.CTk):
         self.txt_threshold.pack(fill="both", expand=True, padx=10, pady=10)
         self.txt_threshold.insert("0.0", "尚未查核")
         self.txt_threshold.configure(state="disabled")
+
+        # 下方加入匯出 PDF 按鈕
+        self.btn_export_pdf = ctk.CTkButton(
+            self.res_stats_frame, text="📄 匯出查核結果成 PDF", font=self.f_btn, 
+            height=50, fg_color="#ff8800", hover_color="#cc6600",
+            command=self.export_to_pdf, state="disabled"
+        )
+        self.btn_export_pdf.pack(fill="x", padx=30, pady=(15, 25))
 
         # 右：推薦清單卡片
         self.res_rec_frame = ctk.CTkFrame(self.res_split, corner_radius=15, fg_color="gray16", border_width=1, border_color="gray25")
@@ -398,8 +398,15 @@ class GraduationGUI(ctk.CTk):
             if match_name and match_teacher and match_sem and match_day:
                 self.filtered_courses.append(c)
         
-        # 排序：將系統自動勾選（已在 passed_course_names 中）的課程排在最前面
-        self.filtered_courses.sort(key=lambda c: 0 if c['name'] in self.passed_course_names else 1)
+        # 排序：
+        # 1. 將系統自動勾選（已在 passed_course_names 中）的課程排在最前面
+        # 2. 若老師為「個別指導教師」，排在最後面
+        def sort_key(c):
+            is_passed = 0 if c['name'] in self.passed_course_names else 1
+            is_individual = 1 if "個別指導教師" in c.get('teachers', '') else 0
+            return (is_passed, is_individual)
+            
+        self.filtered_courses.sort(key=sort_key)
         
         self.current_page = 1
         self.render_page()
@@ -865,7 +872,7 @@ class GraduationGUI(ctk.CTk):
                     domain_gaps[d] = max(0, 4 - taken_domains[d])
 
             # --- 取出並過濾候選清單 --- 
-            cursor.execute("SELECT course_name, credits, category, GROUP_CONCAT(DISTINCT semester) FROM FJU_Courses_Scraped WHERE credits > 0 GROUP BY course_name")
+            cursor.execute("SELECT course_name, credits, category, GROUP_CONCAT(DISTINCT semester) FROM Courses_Scraped WHERE credits > 0 GROUP BY course_name")
             candidates = []
             general_candidates = []
             for row in cursor.fetchall():
@@ -905,10 +912,10 @@ class GraduationGUI(ctk.CTk):
             }
             dept_prefix = dept_mapping.get(dept_base, dept_base[:2])
             
-            # 從 FJU_Courses_Scraped 取得該系所開的選修與必修課
+            # 從 Courses_Scraped 取得該系所開的選修與必修課
             dept_el_cands = []
             dept_ob_cands = []
-            cursor.execute("SELECT course_name, credits, category, GROUP_CONCAT(DISTINCT semester) FROM FJU_Courses_Scraped WHERE department LIKE %s AND category IN ('必修', '選修') GROUP BY course_name", (f"{dept_prefix}%",))
+            cursor.execute("SELECT course_name, credits, category, GROUP_CONCAT(DISTINCT semester) FROM Courses_Scraped WHERE department LIKE %s AND category IN ('必修', '選修') GROUP BY course_name", (f"{dept_prefix}%",))
             for row in cursor.fetchall():
                 n, cr, cat, sems = row
                 if n not in taken_names:
@@ -947,12 +954,12 @@ class GraduationGUI(ctk.CTk):
             except:
                 pass # 如果表不存在或結構改變，忽略錯誤
 
-            # 加入系所指定必修推薦 (來自 FJU_Courses_Scraped department 查詢)
+            # 加入系所指定必修推薦 (來自 Courses_Scraped department 查詢)
             if dept_ob_cands:
                 used_ob = self.add_rec_section("【系所指定必修推薦】", dept_ob_cands, "必修", 999, "#dc3545", self.current_recommendations)
                 if used_ob: ob_gap -= used_ob
 
-            # 加入系所指定選修推薦 (來自 FJU_Courses_Scraped department 查詢)
+            # 加入系所指定選修推薦 (來自 Courses_Scraped department 查詢)
             if dept_el_cands:
                 used_el = self.add_rec_section("【系所選修推薦】", dept_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
                 if used_el: el_gap -= used_el

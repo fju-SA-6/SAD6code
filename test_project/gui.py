@@ -943,7 +943,7 @@ class GraduationGUI(ctk.CTk):
 
             # 加入系所指定選修推薦 (來自 FJU_Courses_Scraped department 查詢)
             if dept_el_cands:
-                used_el = self.add_rec_section("【系所指定選修推薦】", dept_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
+                used_el = self.add_rec_section("【系所選修推薦】", dept_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
                 if used_el: el_gap -= used_el
 
             # 開始配置缺漏 (門檻指定)
@@ -976,9 +976,7 @@ class GraduationGUI(ctk.CTk):
             dept_course_names = {c["name"] for c in dept_ob_cands + dept_el_cands}
             candidates = [c for c in candidates if c["name"] not in dept_course_names]
 
-            if ob_gap > 0:
-                self.add_rec_section("【必修學分推薦】", candidates, "必修", ob_gap, "#ff8800", self.current_recommendations)
-            
+            # (已移除隨機的「必修學分推薦」，改由官方系統缺漏清單完全取代)
             if el_gap > 0:
                 self.add_rec_section("【選修學分推薦】", candidates, "選修", el_gap, "#28a745", self.current_recommendations)
 
@@ -1034,7 +1032,8 @@ class GraduationGUI(ctk.CTk):
                     is_s1 = not is_s1
                 return sem
                 
-            min_semesters = min(sim_semesters(True), sim_semesters(False))
+            # 固定從「上學期」開始模擬，真實反映必須「空等學期」的情況
+            min_semesters = sim_semesters(True)
             if min_semesters > 0:
                 self.lbl_semesters.configure(text=f"🎓 預估最快畢業：還需 {min_semesters} 學期 (以每學期最高 25 學分估算)", text_color="#33b5e5")
             else:

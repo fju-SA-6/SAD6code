@@ -140,10 +140,10 @@ def run_scraper():
 
     chrome_options = uc.ChromeOptions()
     chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     
-    driver = uc.Chrome(options=chrome_options, version_main=147)
-    
-    # 稍微等待瀏覽器完全初始化，避免 undetected_chromedriver 來不及綁定視窗就呼叫 maximize 導致閃退
+    driver = uc.Chrome(options=chrome_options, version_main=148, use_subprocess=True)
     time.sleep(2)
     try:
         driver.maximize_window()

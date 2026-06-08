@@ -265,8 +265,8 @@ class GraduationGUI(ctk.CTk):
             return
             
         try:
-            # 建立通識分類字典 (從 FJU_Courses_Scraped 的 general_field 取得)
-            cursor.execute("SELECT course_name, general_field FROM FJU_Courses_Scraped WHERE category='通識' AND general_field IS NOT NULL")
+            # 建立通識分類字典 (從 Courses_Scraped 的 general_field 取得)
+            cursor.execute("SELECT course_name, general_field FROM Courses_Scraped WHERE category='通識' AND general_field IS NOT NULL")
             self.gen_ed_map = {}
             for row in cursor.fetchall():
                 n, gf = row
@@ -284,15 +284,21 @@ class GraduationGUI(ctk.CTk):
 
             # 1. 取得已過關之個人成績，並找出重複修課時最好的成績，同時記錄該科學分數
             self.course_best_grades = {}
-            cursor.execute("SELECT course_name, grade, credits FROM FJU_Personal_Grades")
+            cursor.execute("SELECT course_name, grade, credits FROM Personal_Grades")
             
             def get_grade_val(g):
-                if g.isdigit(): return int(g)
-                if g in ['抵免', '通過']: return 60 # 將抵免/通過視為 60 分以利於高於未評定等狀態
-                return -1 # 其他如未評定、不及格等視為 -1
+                if isinstance(g, int): return g
+                if isinstance(g, str):
+                    if g.isdigit(): return int(g)
+                    if g in ['抵免', '通過']: return 60
+                return -1
 
             for row in cursor.fetchall():
-                c_name, grade = row[0], row[1].strip() if row[1] else ""
+                c_name = row[0]
+                grade = row[1] if row[1] is not None else ""
+                if isinstance(grade, str):
+                    grade = grade.strip()
+                
                 c_credits = float(row[2]) if row[2] else 0.0
                 c_credits = int(c_credits) if c_credits == int(c_credits) else c_credits
 
@@ -308,10 +314,14 @@ class GraduationGUI(ctk.CTk):
             for c_name, data in self.course_best_grades.items():
                 grade = data['grade']
                 is_passed = False
-                if grade.isdigit() and int(grade) >= 60:
-                    is_passed = True
-                elif grade not in ['不及格', '未通過', '停修', 'W', 'F', '', '未評定成績']:
-                    is_passed = True
+                if isinstance(grade, int):
+                    if grade >= 60:
+                        is_passed = True
+                else:
+                    if grade.isdigit() and int(grade) >= 60:
+                        is_passed = True
+                    elif grade not in ['不及格', '未通過', '停修', 'W', 'F', '', '未評定成績']:
+                        is_passed = True
                 
                 if is_passed:
                     self.passed_course_names.add(c_name)
@@ -319,13 +329,14 @@ class GraduationGUI(ctk.CTk):
             # 2. 取得所有課程資料
             # 2. 取得所有課程資料，將「課名相同且學分相同」的合併顯示
             sql = """
-                SELECT id, course_name, credits, category, 
-                       GROUP_CONCAT(DISTINCT semester) as semesters, 
-                       GROUP_CONCAT(DISTINCT day_of_week) as days, 
-                       GROUP_CONCAT(DISTINCT teacher SEPARATOR ', ') as teachers 
-                FROM FJU_Courses_Scraped 
-                GROUP BY course_name, credits
-                ORDER BY category, course_name, credits
+                SELECT c.id, c.course_name, c.credits, c.category, 
+                       GROUP_CONCAT(DISTINCT c.semester) as semesters, 
+                       GROUP_CONCAT(DISTINCT s.day_of_week) as days, 
+                       GROUP_CONCAT(DISTINCT c.teacher SEPARATOR ', ') as teachers 
+                FROM Courses_Scraped c
+                LEFT JOIN Course_Schedule s ON c.id = s.course_id
+                GROUP BY c.course_name, c.credits
+                ORDER BY c.category, c.course_name, c.credits
             """
             cursor.execute(sql)
             self.all_courses = []
@@ -660,7 +671,7 @@ class GraduationGUI(ctk.CTk):
         try:
             conn, cursor = get_db_connection()
             if cursor:
-                cursor.execute("SELECT requirement_name FROM FJU_Graduation_Check WHERE category IN ('院系必修', '全人/校定') AND grade IN ('尚未修課', '未評定成績')")
+                cursor.execute("SELECT course_name FROM Graduation_Check WHERE category IN ('院系必修', '全人/校定') AND grade IN ('尚未修課', '未評定成績', '0')")
                 for row in cursor.fetchall():
                     req_name = row[0]
                     if "通識領域" in req_name:

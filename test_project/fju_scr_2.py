@@ -115,33 +115,50 @@ def scrape_fju_courses():
         try:
             # 建立新資料表以避免覆寫舊資料，這次我們加入全部的欄位
             create_table_query = """
-            CREATE TABLE IF NOT EXISTS `FJU_Courses_Scraped` (
+            CREATE TABLE IF NOT EXISTS `Courses_Scraped` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
-                `academic_year` varchar(10) NOT NULL,
-                `semester` varchar(10) NOT NULL,
-                `course_code` varchar(20) DEFAULT NULL,
-                `department` varchar(50) DEFAULT NULL,
-                `course_name` varchar(100) NOT NULL,
-                `teacher` varchar(50) DEFAULT NULL,
+                `academic_year` int(11) NOT NULL,
+                `semester` varchar(3) NOT NULL,
+                `course_code` varchar(11) DEFAULT NULL,
+                `department` varchar(7) DEFAULT NULL,
+                `course_name` varchar(27) NOT NULL,
+                `teacher` varchar(6) DEFAULT NULL,
                 `credits` int(11) DEFAULT NULL,
-                `category` varchar(20) DEFAULT NULL,
-                `language` varchar(50) DEFAULT NULL,
-                `day_of_week` varchar(50) DEFAULT NULL,
-                `period` varchar(100) DEFAULT NULL,
-                `classroom` varchar(100) DEFAULT NULL,
-                `general_field` varchar(100) DEFAULT NULL,
+                `category` enum('必修','選修','通識') DEFAULT NULL,
+                `language` varchar(4) DEFAULT NULL,
+                `general_field` varchar(20) DEFAULT NULL,
                 `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
                 PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """
-            cursor.execute("DROP TABLE IF EXISTS `FJU_Courses_Scraped`;")
+            cursor.execute("DROP TABLE IF EXISTS `Course_Schedule`;")
+            cursor.execute("DROP TABLE IF EXISTS `Courses_Scraped`;")
             cursor.execute(create_table_query)
 
-            insert_query = """
-                INSERT INTO FJU_Courses_Scraped 
+            create_schedule_query = """
+            CREATE TABLE IF NOT EXISTS `Course_Schedule` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `course_id` int(11) NOT NULL,
+                `day_of_week` varchar(3) NOT NULL,
+                `period` varchar(12) NOT NULL,
+                `classroom` varchar(13) DEFAULT NULL,
+                `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """
+            cursor.execute(create_schedule_query)
+
+            insert_course_query = """
+                INSERT INTO Courses_Scraped 
                 (academic_year, semester, course_code, department, course_name, teacher, credits, 
-                 category, language, day_of_week, period, classroom, general_field)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 category, language, general_field)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            insert_schedule_query = """
+                INSERT INTO Course_Schedule 
+                (course_id, day_of_week, period, classroom)
+                VALUES (%s, %s, %s, %s)
             """
             
             insert_count = 0
@@ -155,10 +172,10 @@ def scrape_fju_courses():
                 
                 # Check if it has enough columns
                 if len(cols) > 28:
-                    course_code = cols[1][:20]
-                    department = cols[3][:50]
+                    course_code = cols[1][:11]
+                    department = cols[3][:7]
                     course_name_raw = row.find_all(["th", "td"], recursive=False)[4].get_text(separator='\n', strip=True)
-                    course_name = course_name_raw.split('\n')[0][:90]
+                    course_name = course_name_raw.split('\n')[0][:27]
                     
                     try:
                         credits_val = int(float(cols[5]))
@@ -169,18 +186,16 @@ def scrape_fju_courses():
                     if "選" in category and "選修" not in category: category = "選修"
                     elif "必" in category and "必修" not in category: category = "必修"
                     elif "通" in category and "通識" not in category: category = "通識"
-                    category = category[:20]
+                    if category not in ['必修', '選修', '通識']: category = '選修'
 
                     # User requested to hardcode semester to 下學期
-                    semester = "下學期"
+                    semester = "下學期"[:3]
                     teacher_raw = cols[8]
-                    teacher = teacher_raw.split(" 專長：")[0].strip()[:50]
-                    language = cols[9][:50]
+                    teacher = teacher_raw.split(" 專長：")[0].strip()[:6]
+                    language = cols[9][:4]
                     
                     # 處理最多三組的時間與教室
-                    days = []
-                    periods = []
-                    classrooms = []
+                    schedules = []
                     
                     for i in range(3):
                         base = 11 + i * 4
@@ -188,30 +203,33 @@ def scrape_fju_courses():
                         p = cols[base+1].strip()
                         c = cols[base+2].strip()
                         if d and p:
-                            days.append(d)
-                            periods.append(p)
-                            if c and c not in classrooms:
-                                classrooms.append(c)
-                                
-                    day_of_week = ", ".join(days)[:50]
-                    period = ", ".join(periods)[:100]
-                    classroom = ", ".join(classrooms)[:100]
+                            schedules.append({
+                                'day': d[:3],
+                                'period': p[:12],
+                                'classroom': c[:13]
+                            })
                     
-                    general_field = cols[26][:100]
-                    
-                    academic_year = "114"
+                    general_field = cols[26][:20]
+                    academic_year = 114
                     
                     try:
-                        cursor.execute(insert_query, (
+                        cursor.execute(insert_course_query, (
                             academic_year, semester, course_code, department, course_name, teacher, credits_val, 
-                            category, language, day_of_week, period, classroom, general_field
+                            category, language, general_field
                         ))
+                        course_id = cursor.lastrowid
+                        
+                        for sched in schedules:
+                            cursor.execute(insert_schedule_query, (
+                                course_id, sched['day'], sched['period'], sched['classroom']
+                            ))
+                            
                         insert_count += 1
                     except Exception as e:
                         print(f"Skipping row due to error: {e}, Course: {course_name}")
             
             conn.commit()
-            print(f"成功將 {insert_count} 筆課程資料寫入 graduation_db 資料庫 FJU_Courses 資料表。")
+            print(f"成功將 {insert_count} 筆課程資料寫入資料庫。")
             
         except Exception as e:
             print(f"寫入資料庫發生錯誤: {e}")

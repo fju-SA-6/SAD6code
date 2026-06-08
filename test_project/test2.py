@@ -25,14 +25,13 @@ def setup_database():
         
         # 建立專屬於「畢業檢核表」的資料表
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS FJU_Graduation_Check (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                category VARCHAR(20),       -- 全人/校定、院系必修、其它
-                requirement_name VARCHAR(50), -- 該項目的規定名稱 (例如: 人生哲學、微積分)
-                is_completed BOOLEAN,       -- 是否已滿足該項畢業條件
-                semester VARCHAR(20),       -- 修課學期 (例如: 113-1)
-                course_name VARCHAR(100),   -- 實際修課名稱
-                grade VARCHAR(30),          -- 成績 (分數、未評定、抵免)
+            CREATE TABLE IF NOT EXISTS Graduation_Check (
+                id INT(11) AUTO_INCREMENT PRIMARY KEY,
+                category VARCHAR(5),
+                course_name VARCHAR(27),
+                is_completed TINYINT(1),
+                semester VARCHAR(5),
+                grade VARCHAR(5),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -57,7 +56,7 @@ def parse_and_save_check_list(html_source, conn, cursor):
     inserted_count = 0
     
     # 每次更新前先清空舊的檢核資料，避免重複疊加
-    cursor.execute("TRUNCATE TABLE FJU_Graduation_Check")
+    cursor.execute("TRUNCATE TABLE Graduation_Check")
 
     print("\n🔍 正在解析檢核表 HTML 結構...")
 
@@ -80,26 +79,26 @@ def parse_and_save_check_list(html_source, conn, cursor):
             
             if not taken_courses:
                 # 尚未修課的缺口
-                sql = "INSERT INTO FJU_Graduation_Check (category, requirement_name, is_completed, semester, course_name, grade) VALUES (%s, %s, %s, %s, %s, %s)"
-                cursor.execute(sql, (category_name, req_name, is_completed, "", "", "尚未修課"))
+                sql = "INSERT INTO Graduation_Check (category, course_name, is_completed, semester, grade) VALUES (%s, %s, %s, %s, %s)"
+                cursor.execute(sql, (category_name[:5], req_name[:27], is_completed, "", "尚未修課"[:5]))
                 inserted_count += 1
             else:
                 for course in taken_courses:
                     # 學期提取
                     sem_badge = course.find('span', class_='text-crimson')
-                    semester = sem_badge.text.split('/')[-1].strip() if sem_badge and '/' in sem_badge.text else ""
+                    semester = sem_badge.text.split('/')[-1].strip()[:5] if sem_badge and '/' in sem_badge.text else ""
                     
                     # 成績提取
                     badges = course.find_all('span', class_='badge-light')
-                    grade = badges[-1].text.strip() if badges else ""
+                    grade = badges[-1].text.strip()[:5] if badges else ""
                     
                     # 課程名稱提取 (精準去除非文字標籤)
                     course_text = course.get_text(separator='|', strip=True)
                     parts = course_text.split('|')
-                    actual_course_name = parts[2].strip() if len(parts) > 2 else req_name
+                    actual_course_name = parts[1].strip()[:27] if len(parts) > 1 else req_name[:27]
                     
-                    sql = "INSERT INTO FJU_Graduation_Check (category, requirement_name, is_completed, semester, course_name, grade) VALUES (%s, %s, %s, %s, %s, %s)"
-                    cursor.execute(sql, (category_name, req_name, is_completed, semester, actual_course_name, grade))
+                    sql = "INSERT INTO Graduation_Check (category, course_name, is_completed, semester, grade) VALUES (%s, %s, %s, %s, %s)"
+                    cursor.execute(sql, (category_name[:5], actual_course_name, is_completed, semester, grade))
                     inserted_count += 1
 
     # 2. 抓取「其它」區塊 (格式稍微不同)
@@ -124,8 +123,8 @@ def parse_and_save_check_list(html_source, conn, cursor):
                     grade += f" ({warn.text.strip()})"
 
             if course_name:
-                sql = "INSERT INTO FJU_Graduation_Check (category, requirement_name, is_completed, semester, course_name, grade) VALUES (%s, %s, %s, %s, %s, %s)"
-                cursor.execute(sql, ('其它', course_name, True, semester, course_name, grade))
+                sql = "INSERT INTO Graduation_Check (category, course_name, is_completed, semester, grade) VALUES (%s, %s, %s, %s, %s)"
+                cursor.execute(sql, ('其它'[:5], course_name[:27], True, semester[:5], grade[:5]))
                 inserted_count += 1
 
     conn.commit()

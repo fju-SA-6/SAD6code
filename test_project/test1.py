@@ -23,22 +23,22 @@ def setup_database():
     
     try:
         
-        # 建立個人成績資料表 (成績欄位設為 VARCHAR，因為可能會有 "抵免")
+        # 建立個人成績資料表
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS FJU_Personal_Grades (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                course_type VARCHAR(20),   -- 一般學期 或 抵免
-                academic_year VARCHAR(10),
-                semester VARCHAR(10),
-                category VARCHAR(20),      -- 必修、選修、通識
-                course_name VARCHAR(100),
-                credits INT,
-                grade VARCHAR(10),         -- 分數或抵免狀態
+            CREATE TABLE IF NOT EXISTS Personal_Grades (
+                id INT(11) AUTO_INCREMENT PRIMARY KEY,
+                course_type VARCHAR(4),
+                academic_year INT(11),
+                semester INT(11),
+                category ENUM('必修', '選修', '通識'),
+                course_name VARCHAR(27),
+                credits INT(11),
+                grade INT(5),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         # 先清空舊資料
-        cursor.execute("TRUNCATE TABLE FJU_Personal_Grades")
+        cursor.execute("TRUNCATE TABLE Personal_Grades")
         conn.commit()
         print("✅ MySQL 「個人成績資料表」確認完畢並已清空舊資料！")
         return conn, cursor
@@ -198,22 +198,40 @@ def scrape_personal_grades():
                 continue
                 
             # 提取各欄位資料 (依照你提供的 HTML 欄位順序)
-            course_type = cols[0].get_text(strip=True)
-            year = cols[1].get_text(strip=True)
-            sem = cols[2].get_text(strip=True)
-            category = cols[3].get_text(strip=True)
+            course_type = cols[0].get_text(strip=True)[:4]
+            year_str = cols[1].get_text(strip=True)
+            year = int(year_str) if year_str.isdigit() else 113
+            
+            sem_str = cols[2].get_text(strip=True)
+            sem = 1 if "1" in sem_str or "上" in sem_str else 2
+            
+            category_str = cols[3].get_text(strip=True)
+            if "選" in category_str and "選修" not in category_str: category = "選修"
+            elif "必" in category_str and "必修" not in category_str: category = "必修"
+            elif "通" in category_str and "通識" not in category_str: category = "通識"
+            else: category = category_str
+            if category not in ['必修', '選修', '通識']: category = '選修'
             
             # 科目名稱處理：使用 separator 隔開文字與 span，取第一段避免抓到標籤(如: 網, 程)
-            course_name = cols[4].get_text(separator='|', strip=True).split('|')[0]
+            course_name = cols[4].get_text(separator='|', strip=True).split('|')[0][:27]
             
             credits_str = cols[5].get_text(strip=True)
             credits_val = int(credits_str) if credits_str.isdigit() else 0
             
-            grade = cols[8].get_text(strip=True)
+            grade_str = cols[8].get_text(strip=True)
+            
+            if grade_str.isdigit():
+                grade = int(grade_str)
+            elif "抵免" in grade_str or "通過" in grade_str:
+                grade = 60
+            elif "未評定成績" in grade_str:
+                grade = 0
+            else:
+                grade = 0 # 預設轉為 0
             
             # 寫入 MySQL
             sql = """
-                INSERT INTO FJU_Personal_Grades 
+                INSERT INTO Personal_Grades 
                 (course_type, academic_year, semester, category, course_name, credits, grade) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """

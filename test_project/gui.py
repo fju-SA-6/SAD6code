@@ -960,7 +960,7 @@ class GraduationGUI(ctk.CTk):
                 if used_ob: ob_gap -= used_ob
 
             # 加入系所指定選修推薦 (來自 Courses_Scraped department 查詢)
-            if dept_el_cands:
+            if dept_el_cands and el_gap > 0:
                 used_el = self.add_rec_section("【系所選修推薦】", dept_el_cands, "選修", el_gap, "#00C851", self.current_recommendations)
                 if used_el: el_gap -= used_el
 

@@ -93,9 +93,11 @@ def parse_and_save_check_list(html_source, conn, cursor):
                     grade = badges[-1].text.strip()[:5] if badges else ""
                     
                     # 課程名稱提取 (精準去除非文字標籤)
-                    course_text = course.get_text(separator='|', strip=True)
-                    parts = course_text.split('|')
-                    actual_course_name = parts[1].strip()[:27] if len(parts) > 1 else req_name[:27]
+                    course_name_parts = [str(child).strip() for child in course.children if child.name is None and str(child).strip()]
+                    actual_course_name = " ".join(course_name_parts) if course_name_parts else req_name
+                    if actual_course_name.endswith("-網"):
+                        actual_course_name = actual_course_name[:-2]
+                    actual_course_name = actual_course_name[:27]
                     
                     sql = "INSERT INTO Graduation_Check (category, course_name, is_completed, semester, grade) VALUES (%s, %s, %s, %s, %s)"
                     cursor.execute(sql, (category_name[:5], actual_course_name, is_completed, semester, grade))
